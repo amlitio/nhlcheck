@@ -26,7 +26,7 @@ async function populateDropdown() {
 // Function to fetch team stats based on the selected team
 async function fetchTeamStats(teamId) {
   try {
-    const response = await axios.get(`${API_BASE_URL}/teams/${teamId}/stats`);
+    const response = await axios.get(`${API_BASE_URL}/teams/${teamId}`);
     const teamStats = response.data;
 
     return teamStats;
@@ -41,24 +41,7 @@ function updateStatsContainer(teamStats) {
   if (teamStats) {
     statsContainer.innerHTML = `
       <h2>Stats for ${teamStats.name}:</h2>
-      <table class="table table-striped">
-        <thead>
-          <tr>
-            <th>Goals</th>
-            <th>Assists</th>
-            <th>Points</th>
-            <th>TOI</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td>${teamStats.goals}</td>
-            <td>${teamStats.assists}</td>
-            <td>${teamStats.points}</td>
-            <td>${teamStats.toi}</td>
-          </tr>
-        </tbody>
-      </table>
+      <pre>${JSON.stringify(teamStats, null, 2)}</pre>
     `;
   } else {
     statsContainer.innerHTML = '<p>An error occurred while fetching team stats.</p>';
@@ -72,7 +55,7 @@ teamSelect.addEventListener('change', async () => {
   const teamStats = await fetchTeamStats(selectedTeamId);
 
   updateStatsContainer(teamStats);
-});
+}
 
 // Populate the dropdown with NHL teams from the API
 populateDropdown();
