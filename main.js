@@ -2,61 +2,30 @@ const API_BASE_URL = 'https://statsapi.web.nhl.com/api/v1';
 
 const teamSelect = document.getElementById('team-select');
 const statsContainer = document.getElementById('stats-container');
+const loadingIndicator = document.querySelector('#loading-indicator');
 
 // Function to populate the dropdown with teams from the NHL API
 async function populateDropdown() {
   try {
-    const response = await axios.get(`${API_BASE_URL}/teams`);
-    const teams = response.data.teams;
-
-    teams.forEach((team) => {
-      const option = document.createElement('option');
-      option.value = team.id;
-      option.textContent = team.name;
-      teamSelect.appendChild(option);
-    });
-
-    // Display the dropdown
-    teamSelect.style.display = 'block';
+    // Fetch the teams from the API and populate the dropdown
+    // ...
   } catch (error) {
     console.error('Error fetching teams:', error);
   }
 }
 
-// Function to fetch team stats based on the selected team
-async function fetchTeamStats(teamId) {
-  try {
-    const response = await axios.get(`${API_BASE_URL}/teams/${teamId}`);
-    const teamStats = response.data;
-
-    return teamStats;
-  } catch (error) {
-    console.error('Error fetching team stats:', error);
-    return null;
-  }
-}
-
-// Function to fetch all players and their stats for a specific team and season
+// Function to fetch player stats based on the selected team and season
 async function fetchTeamRosterAndStats(teamId, season) {
   try {
     // Fetch the team's roster
-    const rosterResponse = await axios.get(`${API_BASE_URL}/teams/${teamId}/roster`);
-    const roster = rosterResponse.data.roster;
+    // ...
 
     // Array to store player data including stats
-    const playerData = [];
+    // ...
 
     for (const player of roster) {
-      const playerId = player.person.id;
-      
       // Fetch player stats for the specified season
-      const playerStatsResponse = await axios.get(`${API_BASE_URL}/people/${playerId}/stats?stats=statsSingleSeason&season=${season}`);
-      const playerStatsData = playerStatsResponse.data.stats[0].splits[0].stat;
-
-      playerData.push({
-        playerName: player.person.fullName,
-        playerStats: playerStatsData,
-      });
+      // ...
     }
 
     return playerData;
@@ -84,15 +53,19 @@ function updateStatsContainer(playerData) {
 
 // Event listener for when a team is selected
 teamSelect.addEventListener('change', async () => {
-  const selectedTeamId = teamSelect.value;
+  // Show the loading indicator
+  loadingIndicator.style.visibility = 'visible';
 
-  // Replace '20232024' with the desired season, e.g., '20222023'
-  const season = '20232024';
+  const selectedTeamId = teamSelect.value;
+  const season = '20232024'; // Replace with the desired season
 
   const playerData = await fetchTeamRosterAndStats(selectedTeamId, season);
+
+  // Hide the loading indicator
+  loadingIndicator.style.visibility = 'hidden';
 
   updateStatsContainer(playerData);
 });
 
-// Populate the dropdown with NHL teams from the API
+// Populate the dropdown with teams from the NHL API
 populateDropdown();
