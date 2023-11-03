@@ -3,6 +3,39 @@ const API_BASE_URL = 'https://statsapi.web.nhl.com/api/v1';
 const teamSelect = document.getElementById('team-select');
 const statsContainer = document.getElementById('stats-container');
 
+// Function to populate the dropdown with teams from the NHL API
+async function populateDropdown() {
+  try {
+    const response = await axios.get(`${API_BASE_URL}/teams`);
+    const teams = response.data.teams;
+
+    teams.forEach((team) => {
+      const option = document.createElement('option');
+      option.value = team.id;
+      option.textContent = team.name;
+      teamSelect.appendChild(option);
+    });
+
+    // Display the dropdown
+    teamSelect.style.display = 'block';
+  } catch (error) {
+    console.error('Error fetching teams:', error);
+  }
+}
+
+// Function to fetch team stats based on the selected team
+async function fetchTeamStats(teamId) {
+  try {
+    const response = await axios.get(`${API_BASE_URL}/teams/${teamId}`);
+    const teamStats = response.data;
+
+    return teamStats;
+  } catch (error) {
+    console.error('Error fetching team stats:', error);
+    return null;
+  }
+}
+
 // Function to fetch all players and their stats for a specific team and season
 async function fetchTeamRosterAndStats(teamId, season) {
   try {
