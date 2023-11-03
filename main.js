@@ -1,3 +1,29 @@
+const API_BASE_URL = 'https://statsapi.web.nhl.com/api/v1';
+
+const teamSelect = document.getElementById('team-select');
+const statsContainer = document.getElementById('stats-container');
+const loadingIndicator = document.querySelector('#loading-indicator');
+
+// Function to populate the dropdown with teams from the NHL API
+async function populateDropdown() {
+  try {
+    const response = await axios.get(`${API_BASE_URL}/teams`);
+    const teams = response.data.teams;
+
+    teams.forEach((team) => {
+      const option = document.createElement('option');
+      option.value = team.id;
+      option.textContent = team.name;
+      teamSelect.appendChild(option);
+    });
+
+    // Display the dropdown
+    teamSelect.style.display = 'block';
+  } catch (error) {
+    console.error('Error fetching teams:', error);
+  }
+}
+
 // Function to fetch the team's roster
 async function fetchTeamRoster(teamId) {
   try {
@@ -23,13 +49,13 @@ async function fetchPlayerStats(playerId, season) {
 // Function to fetch all player data including stats
 async function fetchAllPlayerData(roster, season) {
   const playerData = [];
-  
+
   for (const player of roster) {
     const playerId = player.person.id;
     const playerName = player.person.fullName;
-    
+
     const playerStats = await fetchPlayerStats(playerId, season);
-    
+
     if (playerStats) {
       playerData.push({
         playerName,
@@ -39,11 +65,11 @@ async function fetchAllPlayerData(roster, season) {
       console.error(`Error fetching stats for ${playerName}`);
     }
   }
-  
+
   return playerData;
 }
 
-// Update the stats container with the player data
+// Function to update the stats container with the player data
 function updateStatsContainer(playerData) {
   if (playerData.length > 0) {
     statsContainer.innerHTML = `
@@ -63,7 +89,7 @@ function updateStatsContainer(playerData) {
 teamSelect.addEventListener('change', async () => {
   // Clear the existing data in the statsContainer
   statsContainer.innerHTML = '';
-  
+
   // Show the loading indicator
   loadingIndicator.style.visibility = 'visible';
 
@@ -71,7 +97,7 @@ teamSelect.addEventListener('change', async () => {
   const season = '20232024'; // Replace with the desired season
 
   const roster = await fetchTeamRoster(selectedTeamId);
-  
+
   if (roster) {
     const playerData = await fetchAllPlayerData(roster, season);
 
@@ -82,7 +108,7 @@ teamSelect.addEventListener('change', async () => {
   } else {
     // Hide the loading indicator in case of an error
     loadingIndicator.style.visibility = 'hidden';
-    
+
     // Display an error message in the statsContainer
     statsContainer.innerHTML = '<p>An error occurred while fetching team roster.</p>';
   }
