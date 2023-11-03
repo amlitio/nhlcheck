@@ -35,11 +35,27 @@ async function fetchTeamRoster(teamId) {
   }
 }
 
-// Function to fetch player stats for the specified season
+// Function to fetch player stats for the specified season, including additional stats
 async function fetchPlayerStats(playerId, season) {
   try {
-    const response = await axios.get(`${API_BASE_URL}/people/${playerId}/stats?stats=statsSingleSeason&season=${season}`);
-    return response.data.stats[0].splits[0].stat;
+    const response = await axios.get(
+      `${API_BASE_URL}/people/${playerId}/stats?stats=statsSingleSeason&season=${season}`
+    );
+    const playerStatsData = response.data.stats[0].splits[0].stat;
+
+    // Include additional stats in the player's stats object
+    playerStatsData.shots = playerStatsData.shots || 0;
+    playerStatsData.powerPlayGoals = playerStatsData.powerPlayGoals || 0;
+    playerStatsData.powerPlayAssists = playerStatsData.powerPlayAssists || 0;
+    playerStatsData.shortHandedGoals = playerStatsData.shortHandedGoals || 0;
+    playerStatsData.shortHandedAssists = playerStatsData.shortHandedAssists || 0;
+    playerStatsData.hits = playerStatsData.hits || 0;
+    playerStatsData.blocked = playerStatsData.blocked || 0;
+    playerStatsData.faceoffPct = playerStatsData.faceoffPct || 0;
+    playerStatsData.pim = playerStatsData.pim || 0;
+    playerStatsData.plusMinus = playerStatsData.plusMinus || 0;
+
+    return playerStatsData;
   } catch (error) {
     console.error('Error fetching player stats:', error);
     return null;
@@ -72,13 +88,51 @@ async function fetchAllPlayerData(roster, season) {
 // Function to update the stats container with the player data
 function updateStatsContainer(playerData) {
   if (playerData.length > 0) {
+    // Create a table to display player stats
     statsContainer.innerHTML = `
       <h2>Players and Stats for ${teamSelect.options[teamSelect.selectedIndex].text}:</h2>
-      <ul>
-        ${playerData.map(player => `
-          <li>${player.playerName} - Goals: ${player.playerStats.goals}, Assists: ${player.playerStats.assists}, Points: ${player.playerStats.points}, TOI: ${player.playerStats.timeOnIce}
-        `).join('')}
-      </ul>
+      <table class="table table-striped">
+        <thead>
+          <tr>
+            <th>Player</th>
+            <th>Goals</th>
+            <th>Assists</th>
+            <th>Points</th>
+            <th>TOI</th>
+            <th>Shots</th>
+            <th>Power Play Goals</th>
+            <th>Power Play Assists</th>
+            <th>Short Handed Goals</th>
+            <th>Short Handed Assists</th>
+            <th>Hits</th>
+            <th>Blocked</th>
+            <th>Faceoff %</th>
+            <th>PIM</th>
+            <th>Plus-Minus</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${playerData.map((player) => `
+            <tr>
+              <td>${player.playerName}</td>
+              <td>${player.playerStats.goals}</td>
+              <td>${player.playerStats.assists}</td>
+              <td>${player.playerStats.points}</td>
+              <td>${player.playerStats.timeOnIce}</td>
+              <td>${player.playerStats.shots}</td>
+              <td>${player.playerStats.powerPlayGoals}</td>
+              <td>${player.playerStats.powerPlayAssists}</td>
+              <td>${player.playerStats.shortHandedGoals}</td>
+              <td>${player.playerStats.shortHandedAssists}</td>
+              <td>${player.playerStats.hits}</td>
+              <td>${player.playerStats.blocked}</td>
+              <td>${player.playerStats.faceoffPct}%</td>
+              <td>${player.playerStats.pim}</td>
+              <td>${player.playerStats.plusMinus}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
     `;
   } else {
     statsContainer.innerHTML = '<p>No player stats available for this team.</p>';
