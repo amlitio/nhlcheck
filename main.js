@@ -3,7 +3,7 @@ const API_BASE_URL = 'https://statsapi.web.nhl.com/api/v1';
 const teamSelect = document.getElementById('team-select');
 const statsContainer = document.getElementById('stats-container');
 
-// Function to populate the dropdown with teams from the API
+// Function to populate the dropdown with teams from the NHL API
 async function populateDropdown() {
   try {
     const response = await axios.get(`${API_BASE_URL}/teams`);
@@ -15,12 +15,15 @@ async function populateDropdown() {
       option.textContent = team.name;
       teamSelect.appendChild(option);
     });
+
+    // Display the dropdown
+    teamSelect.style.display = 'block';
   } catch (error) {
     console.error('Error fetching teams:', error);
   }
 }
 
-// Function to fetch the team stats from the API
+// Function to fetch team stats based on the selected team
 async function fetchTeamStats(teamId) {
   try {
     const response = await axios.get(`${API_BASE_URL}/teams/${teamId}/stats`);
@@ -33,7 +36,7 @@ async function fetchTeamStats(teamId) {
   }
 }
 
-// Update the stats container with the given team stats
+// Function to update the stats container with the team's statistics
 function updateStatsContainer(teamStats) {
   if (teamStats) {
     statsContainer.innerHTML = `
@@ -62,7 +65,7 @@ function updateStatsContainer(teamStats) {
   }
 }
 
-// Add event listener for when a team is selected
+// Event listener for when a team is selected
 teamSelect.addEventListener('change', async () => {
   const selectedTeamId = teamSelect.value;
 
@@ -71,5 +74,5 @@ teamSelect.addEventListener('change', async () => {
   updateStatsContainer(teamStats);
 });
 
-// Populate the dropdown with teams from the API
+// Populate the dropdown with NHL teams from the API
 populateDropdown();
