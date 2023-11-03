@@ -4,3 +4,16 @@
 @import 'tailwindcss/utilities';
 
 /* Your custom styles go here */
+/* For example: */
+/* Set a custom background color for the body element */
+body {
+  background-color: #f5f5f5;
+}
+
+/* Add custom styles to specific elements */
+.custom-heading {
+  font-size: 24px;
+  color: #333;
+}
+
+/* Add more custom styles as needed */
