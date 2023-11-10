@@ -4,11 +4,11 @@ const teamSelect = document.getElementById('team-select');
 const statsContainer = document.getElementById('stats-container');
 const loadingIndicator = document.querySelector('#loading-indicator');
 
-// Function to populate the dropdown with teams from the NHL API
 async function populateDropdown() {
   try {
     const response = await axios.get(`${API_BASE_URL}/teams`);
     const teams = response.data.teams;
+    console.log('Teams fetched:', teams); // Debugging log
 
     teams.forEach((team) => {
       const option = document.createElement('option');
@@ -16,15 +16,11 @@ async function populateDropdown() {
       option.textContent = team.name;
       teamSelect.appendChild(option);
     });
-
-    // Display the dropdown
-    teamSelect.style.display = 'block';
   } catch (error) {
     console.error('Error fetching teams:', error);
   }
 }
 
-// Function to fetch the team's roster
 async function fetchTeamRoster(teamId) {
   try {
     const response = await axios.get(`${API_BASE_URL}/teams/${teamId}/roster`);
@@ -35,7 +31,6 @@ async function fetchTeamRoster(teamId) {
   }
 }
 
-// Function to fetch player stats for the specified season, including additional stats
 async function fetchPlayerStats(playerId, season) {
   try {
     const response = await axios.get(
@@ -43,7 +38,6 @@ async function fetchPlayerStats(playerId, season) {
     );
     const playerStatsData = response.data.stats[0].splits[0].stat;
 
-    // Include additional stats in the player's stats object
     playerStatsData.shots = playerStatsData.shots || 0;
     playerStatsData.powerPlayGoals = playerStatsData.powerPlayGoals || 0;
     playerStatsData.powerPlayAssists = playerStatsData.powerPlayAssists || 0;
@@ -62,7 +56,6 @@ async function fetchPlayerStats(playerId, season) {
   }
 }
 
-// Function to fetch all player data including stats
 async function fetchAllPlayerData(roster, season) {
   const playerData = [];
 
@@ -85,10 +78,8 @@ async function fetchAllPlayerData(roster, season) {
   return playerData;
 }
 
-// Function to update the stats container with the player data
 function updateStatsContainer(playerData) {
   if (playerData.length > 0) {
-    // Create a table to display player stats
     statsContainer.innerHTML = `
       <h2>Players and Stats for ${teamSelect.options[teamSelect.selectedIndex].text}:</h2>
       <table class="table table-striped">
@@ -139,12 +130,8 @@ function updateStatsContainer(playerData) {
   }
 }
 
-// Event listener for when a team is selected
 teamSelect.addEventListener('change', async () => {
-  // Clear the existing data in the statsContainer
   statsContainer.innerHTML = '';
-
-  // Show the loading indicator
   loadingIndicator.style.visibility = 'visible';
 
   const selectedTeamId = teamSelect.value;
@@ -153,20 +140,16 @@ teamSelect.addEventListener('change', async () => {
   const roster = await fetchTeamRoster(selectedTeamId);
 
   if (roster) {
-    const playerData = await fetchAllPlayerData(roster, season);
+        const playerData = await fetchAllPlayerData(roster, season);
 
-    // Hide the loading indicator
     loadingIndicator.style.visibility = 'hidden';
 
     updateStatsContainer(playerData);
   } else {
-    // Hide the loading indicator in case of an error
     loadingIndicator.style.visibility = 'hidden';
-
-    // Display an error message in the statsContainer
     statsContainer.innerHTML = '<p>An error occurred while fetching team roster.</p>';
   }
 });
 
-// Populate the dropdown with teams from the NHL API
 populateDropdown();
+
