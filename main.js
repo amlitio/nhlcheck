@@ -8,19 +8,24 @@ const loadingIndicator = document.querySelector('#loading-indicator');
 async function populateDropdown() {
   try {
     const response = await axios.get(`${API_BASE_URL}/teams`);
-    const teams = response.data.teams;
+    if (response.data && response.data.teams) {
+      const teams = response.data.teams;
 
-    teams.forEach((team) => {
-      const option = document.createElement('option');
-      option.value = team.id;
-      option.textContent = team.name;
-      teamSelect.appendChild(option);
-    });
+      teams.forEach((team) => {
+        const option = document.createElement('option');
+        option.value = team.id;
+        option.textContent = team.name;
+        teamSelect.appendChild(option);
+      });
 
-    // Display the dropdown
-    teamSelect.style.display = 'block';
+      // Display the dropdown
+      teamSelect.style.display = 'block';
+    } else {
+      throw new Error('Invalid API response for teams');
+    }
   } catch (error) {
     console.error('Error fetching teams:', error);
+    statsContainer.innerHTML = `<p>Error fetching teams: ${error.message}</p>`;
   }
 }
 
@@ -28,10 +33,14 @@ async function populateDropdown() {
 async function fetchTeamRoster(teamId) {
   try {
     const response = await axios.get(`${API_BASE_URL}/teams/${teamId}/roster`);
-    return response.data.roster;
+    if (response.data && response.data.roster) {
+      return response.data.roster;
+    } else {
+      throw new Error('Invalid API response for roster');
+    }
   } catch (error) {
     console.error('Error fetching team roster:', error);
-    return null;
+    throw error; // Rethrow to handle in the calling function
   }
 }
 
@@ -41,24 +50,28 @@ async function fetchPlayerStats(playerId, season) {
     const response = await axios.get(
       `${API_BASE_URL}/people/${playerId}/stats?stats=statsSingleSeason&season=${season}`
     );
-    const playerStatsData = response.data.stats[0].splits[0].stat;
+    if (response.data && response.data.stats && response.data.stats[0] && response.data.stats[0].splits[0]) {
+      const playerStatsData = response.data.stats[0].splits[0].stat;
 
-    // Include additional stats in the player's stats object
-    playerStatsData.shots = playerStatsData.shots || 0;
-    playerStatsData.powerPlayGoals = playerStatsData.powerPlayGoals || 0;
-    playerStatsData.powerPlayAssists = playerStatsData.powerPlayAssists || 0;
-    playerStatsData.shortHandedGoals = playerStatsData.shortHandedGoals || 0;
-    playerStatsData.shortHandedAssists = playerStatsData.shortHandedAssists || 0;
-    playerStatsData.hits = playerStatsData.hits || 0;
-    playerStatsData.blocked = playerStatsData.blocked || 0;
-    playerStatsData.faceoffPct = playerStatsData.faceoffPct || 0;
-    playerStatsData.pim = playerStatsData.pim || 0;
-    playerStatsData.plusMinus = playerStatsData.plusMinus || 0;
+      // Include additional stats in the player's stats object
+      playerStatsData.shots = playerStatsData.shots || 0;
+      playerStatsData.powerPlayGoals = playerStatsData.powerPlayGoals || 0;
+      playerStatsData.powerPlayAssists = playerStatsData.powerPlayAssists || 0;
+      playerStatsData.shortHandedGoals = playerStatsData.shortHandedGoals || 0;
+      playerStatsData.shortHandedAssists = playerStatsData.shortHandedAssists || 0;
+      playerStatsData.hits = playerStatsData.hits || 0;
+      playerStatsData.blocked = playerStatsData.blocked || 0;
+      playerStatsData.faceoffPct = playerStatsData.faceoffPct || 0;
+      playerStatsData.pim = playerStatsData.pim || 0;
+      playerStatsData.plusMinus = playerStatsData.plusMinus || 0;
 
-    return playerStatsData;
+      return playerStatsData;
+    } else {
+      throw new Error('Invalid API response for player stats');
+    }
   } catch (error) {
     console.error('Error fetching player stats:', error);
-    return null;
+    throw error; // Rethrow to handle in the calling function
   }
 }
 
@@ -70,15 +83,14 @@ async function fetchAllPlayerData(roster, season) {
     const playerId = player.person.id;
     const playerName = player.person.fullName;
 
-    const playerStats = await fetchPlayerStats(playerId, season);
-
-    if (playerStats) {
+    try {
+      const playerStats = await fetchPlayerStats(playerId, season);
       playerData.push({
         playerName,
         playerStats,
       });
-    } else {
-      console.error(`Error fetching stats for ${playerName}`);
+    } catch (error) {
+      console.error(`Error fetching stats for ${playerName}:`, error);
     }
   }
 
@@ -150,21 +162,20 @@ teamSelect.addEventListener('change', async () => {
   const selectedTeamId = teamSelect.value;
   const season = '20232024'; // Replace with the desired season
 
-  const roster = await fetchTeamRoster(selectedTeamId);
-
-  if (roster) {
+  try {
+    const roster = await fetchTeamRoster(selectedTeamId);
     const playerData = await fetchAllPlayerData(roster, season);
 
     // Hide the loading indicator
     loadingIndicator.style.visibility = 'hidden';
 
     updateStatsContainer(playerData);
-  } else {
+  } catch (error) {
     // Hide the loading indicator in case of an error
     loadingIndicator.style.visibility = 'hidden';
 
     // Display an error message in the statsContainer
-    statsContainer.innerHTML = '<p>An error occurred while fetching team roster.</p>';
+    statsContainer.innerHTML = `<p>An error occurred while fetching team roster: ${error.message}</p>`;
   }
 });
 
