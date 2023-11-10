@@ -1,6 +1,30 @@
-/* tailwind.css */
 @import 'tailwindcss/base';
 @import 'tailwindcss/components';
 @import 'tailwindcss/utilities';
 
-/* Your custom styles go here */
+/* Custom styles for dark theme */
+.dark body {
+  background-color: #1a202c; /* Dark background */
+}
+
+.dark .custom-heading {
+  color: #cbd5e1; /* Lighter text color for dark mode */
+}
+
+/* Centered container */
+.centered-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+}
+
+
+/* Add custom styles to specific elements */
+.custom-heading {
+  font-size: 24px;
+  color: #333;
+}
+
+/* Add more custom styles as needed */
