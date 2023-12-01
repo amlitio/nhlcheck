@@ -1,13 +1,14 @@
 {
-  "name": "nhlcheck",
+  "name": "nhl-quick-stats",
   "version": "1.0.0",
-  "description": "NHL Stats App",
+  "description": "NHL Quick Stats Web App",
   "main": "main.js",
   "scripts": {
+    "start": "live-server"
   },
   "keywords": ["NHL", "stats", "web app"],
-  "author": "amlitio",
-  "license": "MIT",
+  "author": "Your Name",
+  "license": "MIT"
   "dependencies": {
     "axios": "^0.27.2",
     "cors-anywhere": "^0.4.4"
