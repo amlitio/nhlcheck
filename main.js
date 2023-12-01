@@ -4,18 +4,70 @@ const teamSelect = document.getElementById('team-select');
 const statsContainer = document.getElementById('stats-container');
 const loadingIndicator = document.querySelector('#loading-indicator');
 
-// Function to populate the dropdown with teams from the NHL API
-async function populateDropdown() {
-  try {
-    const response = await axios.get(`${API_BASE_URL}/teams`);
-    const teams = response.data.teams;
+// Manually populate the dropdown with NHL teams
+const teams = [
+  { id: 1, name: 'New Jersey Devils' },
+  { id: 2, name: 'New York Islanders' },
+  { id: 3, name: 'New York Rangers' },
+  { id: 4, name: 'Philadelphia Flyers' },
+  { id: 5, name: 'Pittsburgh Penguins' },
+  { id: 6, name: 'Boston Bruins' },
+  { id: 7, name: 'Buffalo Sabres' },
+  { id: 8, name: 'Montréal Canadiens' },
+  { id: 9, name: 'Ottawa Senators' },
+  { id: 10, name: 'Toronto Maple Leafs' },
+  { id: 12, name: 'Carolina Hurricanes' },
+  { id: 13, name: 'Florida Panthers' },
+  { id: 14, name: 'Tampa Bay Lightning' },
+  { id: 15, name: 'Washington Capitals' },
+  { id: 16, name: 'Chicago Blackhawks' },
+  { id: 17, name: 'Detroit Red Wings' },
+  { id: 18, name: 'Nashville Predators' },
+  { id: 19, name: 'St. Louis Blues' },
+  { id: 20, name: 'Calgary Flames' },
+  { id: 21, name: 'Colorado Avalanche' },
+  { id: 22, name: 'Edmonton Oilers' },
+  { id: 23, name: 'Vancouver Canucks' },
+  { id: 24, name: 'Anaheim Ducks' },
+  { id: 25, name: 'Dallas Stars' },
+  { id: 26, name: 'Los Angeles Kings' },
+  { id: 28, name: 'San Jose Sharks' },
+  { id: 29, name: 'Columbus Blue Jackets' },
+  { id: 30, name: 'Minnesota Wild' },
+  { id: 52, name: 'Winnipeg Jets' },
+  { id: 53, name: 'Arizona Coyotes' },
+  { id: 54, name: 'Vegas Golden Knights' },
+  { id: 55, name: 'Seattle Kraken' }
+];
 
-    teams.forEach((team) => {
-      const option = document.createElement('option');
-      option.value = team.id;
-      option.textContent = team.name;
-      teamSelect.appendChild(option);
-    });
+teams.forEach((team) => {
+  const option = document.createElement('option');
+  option.value = team.id;
+  option.textContent = team.name;
+  teamSelect.appendChild(option);
+});
+
+// Display the dropdown
+//teamSelect.style.display = 'block';
+
+//const API_BASE_URL = 'https://statsapi.web.nhl.com/api/v1';
+
+//const teamSelect = document.getElementById('team-select');
+//const statsContainer = document.getElementById('stats-container');
+//const loadingIndicator = document.querySelector('#loading-indicator');
+
+// Function to populate the dropdown with teams from the NHL API
+//async function populateDropdown() {
+  //try {
+    //const response = await axios.get(`${API_BASE_URL}/teams`);
+    //const teams = response.data.teams;
+
+    //teams.forEach((team) => {
+      //const option = document.createElement('option');
+      //option.value = team.id;
+      //option.textContent = team.name;
+      //teamSelect.appendChild(option);
+    //});
 
     // Display the dropdown
     teamSelect.style.display = 'block';
