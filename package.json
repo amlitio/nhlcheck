@@ -4,12 +4,12 @@
   "description": "NHL Stats App",
   "main": "main.js",
   "scripts": {
-    "start": "node main.js"
   },
   "keywords": ["NHL", "stats", "web app"],
   "author": "amlitio",
   "license": "MIT",
   "dependencies": {
-    "axios": "^0.27.2"
+    "axios": "^0.27.2",
+    "cors-anywhere": "^0.4.4"
   }
 }
