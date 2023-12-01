@@ -2,9 +2,9 @@
   "name": "nhlcheck",
   "version": "1.0.0",
   "description": "NHL Stats App",
-  "main": "index.js",
+  "main": "main.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node main.js"
   },
   "keywords": ["NHL", "stats", "web app"],
   "author": "amlitio",
