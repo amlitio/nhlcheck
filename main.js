@@ -382,95 +382,119 @@ function predictGame(homeAbbrev, awayAbbrev, standingsMap) {
 async function fetchScores() {
   showLoading(scoresLoading);
   try {
-    // Fetch games and standings in parallel
-    const [scoresRes, standingsMap] = await Promise.all([
-      fetch(`${API_BASE}/score/now`).then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }),
-      fetchStandingsMap().catch(() => ({})), // predictions are optional; don't fail scores if this fails
+    // /schedule/now returns gameWeek[{date, games:[...]}]
+    // Fetch games and standings in parallel; standings failure is non-fatal.
+    const [schedRes, standingsMap] = await Promise.all([
+      fetch(`${API_BASE}/schedule/now`).then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      }),
+      fetchStandingsMap().catch(() => ({})),
     ]);
 
-    if (!scoresRes.games || scoresRes.games.length === 0) {
+    // Flatten today's games from the gameWeek structure
+    const todayBlock = schedRes.gameWeek?.[0] ?? {};
+    const games      = todayBlock.games ?? [];
+    const displayDate = todayBlock.date ?? 'Today';
+
+    if (!games.length) {
       scoresContainer.innerHTML = `<p class="text-gray-400">No games scheduled for today.</p>`;
       return;
     }
 
-    const html = scoresRes.games.map(game => {
-      const away  = game.awayTeam;
-      const home  = game.homeTeam;
-      const state = game.gameState; // FUT, PRE, LIVE, CRIT, OFF
+    // Render each game card; wrap individually so one bad record can't blank the tab.
+    const cards = games.map(game => {
+      try {
+        const away  = game.awayTeam ?? {};
+        const home  = game.homeTeam ?? {};
+        const state = game.gameState ?? 'FUT';
 
-      let statusText  = '';
-      let statusClass = 'text-gray-400';
+        // /schedule/now does not include logo URLs — reconstruct from abbreviation.
+        // NHL logo CDN pattern: https://assets.nhle.com/logos/nhl/svg/{ABBREV}_light.svg
+        const awayLogo = `https://assets.nhle.com/logos/nhl/svg/${away.abbrev}_light.svg`;
+        const homeLogo = `https://assets.nhle.com/logos/nhl/svg/${home.abbrev}_light.svg`;
 
-      if (state === 'FUT' || state === 'PRE') {
-        statusText = new Date(game.startTimeUTC).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-      } else if (state === 'LIVE' || state === 'CRIT') {
-        const period = game.periodDescriptor ? `P${game.periodDescriptor.number}` : '';
-        const clock  = game.clock?.timeRemaining ?? '';
-        statusText   = `${period} ${clock}`.trim();
-        statusClass  = 'text-green-400 font-semibold animate-pulse';
-      } else if (state === 'OFF') {
-        const suffix = game.gameOutcome?.lastPeriodType !== 'REG'
-          ? `Final/${game.gameOutcome.lastPeriodType}`
-          : 'Final';
-        statusText = suffix;
-      }
+        let statusText  = '';
+        let statusClass = 'text-gray-400';
 
-      // Prediction badge (only shown for scheduled/future games)
-      const pred    = predictGame(home.abbrev, away.abbrev, standingsMap);
-      const predBadge = (state === 'FUT' || state === 'PRE') && pred ? `
-        <div class="mt-3 pt-3 border-t border-gray-700">
-          <div class="flex items-center justify-between">
-            <span class="text-xs text-gray-500 uppercase tracking-wide">Prediction</span>
-            <div class="flex items-center gap-2">
-              <span class="text-xs font-bold ${pred.pick === home.abbrev ? 'text-blue-300' : 'text-orange-300'}">
-                ${pred.pick}
-              </span>
-              <div class="flex items-center gap-1">
-                <div class="h-1.5 rounded-full bg-gray-700 w-16 overflow-hidden">
-                  <div class="h-full rounded-full ${pred.pick === home.abbrev ? 'bg-blue-500' : 'bg-orange-400'}"
-                       style="width:${pred.confidence}%"></div>
+        if (state === 'FUT' || state === 'PRE') {
+          statusText = new Date(game.startTimeUTC).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+        } else if (state === 'LIVE' || state === 'CRIT') {
+          const period = game.periodDescriptor?.number ? `P${game.periodDescriptor.number}` : '';
+          const clock  = game.clock?.timeRemaining ?? '';
+          statusText   = `${period} ${clock}`.trim();
+          statusClass  = 'text-green-400 font-semibold animate-pulse';
+        } else if (state === 'OFF') {
+          const ot     = game.gameOutcome?.lastPeriodType;
+          statusText   = ot && ot !== 'REG' ? `Final/${ot}` : 'Final';
+        }
+
+        // Prediction badge — only for not-yet-started games; silently skip if data missing.
+        let predBadge = '';
+        if ((state === 'FUT' || state === 'PRE') && home.abbrev && away.abbrev) {
+          const pred = predictGame(home.abbrev, away.abbrev, standingsMap);
+          if (pred) {
+            predBadge = `
+              <div class="mt-3 pt-3 border-t border-gray-700">
+                <div class="flex items-center justify-between">
+                  <span class="text-xs text-gray-500 uppercase tracking-wide">Prediction</span>
+                  <div class="flex items-center gap-2">
+                    <span class="text-xs font-bold ${pred.pick === home.abbrev ? 'text-blue-300' : 'text-orange-300'}">
+                      ${pred.pick}
+                    </span>
+                    <div class="flex items-center gap-1">
+                      <div class="h-1.5 rounded-full bg-gray-700 w-16 overflow-hidden">
+                        <div class="h-full rounded-full ${pred.pick === home.abbrev ? 'bg-blue-500' : 'bg-orange-400'}"
+                             style="width:${pred.confidence}%"></div>
+                      </div>
+                      <span class="text-xs text-gray-400">${pred.confidence}%</span>
+                    </div>
+                  </div>
                 </div>
-                <span class="text-xs text-gray-400">${pred.confidence}%</span>
+                ${pred.streakLabel ? `<div class="text-xs text-gray-600 text-right mt-0.5">${pred.streakLabel}</div>` : ''}
+                <div class="flex justify-between text-xs text-gray-600 mt-1">
+                  <span>${away.abbrev} ${100 - pred.homeWinPct}%</span>
+                  <span class="text-gray-500">Home ice incl.</span>
+                  <span>${home.abbrev} ${pred.homeWinPct}%</span>
+                </div>
+              </div>`;
+          }
+        }
+
+        const showScore = state !== 'FUT' && state !== 'PRE';
+
+        return `
+          <div class="bg-nhl-card rounded-lg p-4 flex flex-col gap-3 border border-gray-700/30">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-3 flex-1">
+                <img src="${awayLogo}" alt="" class="w-10 h-10" onerror="this.style.display='none'">
+                <span class="font-medium">${away.abbrev ?? '—'}</span>
               </div>
+              <span class="text-2xl font-bold w-8 text-center tabular-nums">${showScore ? (away.score ?? 0) : ''}</span>
             </div>
-          </div>
-          ${pred.streakLabel ? `<div class="text-xs text-gray-600 text-right mt-0.5">${pred.streakLabel}</div>` : ''}
-          <div class="flex justify-between text-xs text-gray-600 mt-1">
-            <span>${away.abbrev} ${100 - pred.homeWinPct}%</span>
-            <span class="text-gray-500">Home ice incl.</span>
-            <span>${home.abbrev} ${pred.homeWinPct}%</span>
-          </div>
-        </div>` : '';
-
-      const showScore = state !== 'FUT' && state !== 'PRE';
-
-      return `
-        <div class="bg-nhl-card rounded-lg p-4 flex flex-col gap-3 border border-gray-700/30">
-          <div class="flex items-center justify-between">
-            <div class="flex items-center gap-3 flex-1">
-              <img src="${away.logo}" alt="" class="w-10 h-10" onerror="this.style.display='none'">
-              <span class="font-medium">${away.abbrev}</span>
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-3 flex-1">
+                <img src="${homeLogo}" alt="" class="w-10 h-10" onerror="this.style.display='none'">
+                <span class="font-medium">${home.abbrev ?? '—'} <span class="text-xs text-gray-500">HOME</span></span>
+              </div>
+              <span class="text-2xl font-bold w-8 text-center tabular-nums">${showScore ? (home.score ?? 0) : ''}</span>
             </div>
-            <span class="text-2xl font-bold w-8 text-center tabular-nums">${showScore ? (away.score ?? 0) : ''}</span>
-          </div>
-          <div class="flex items-center justify-between">
-            <div class="flex items-center gap-3 flex-1">
-              <img src="${home.logo}" alt="" class="w-10 h-10" onerror="this.style.display='none'">
-              <span class="font-medium">${home.abbrev} <span class="text-xs text-gray-500">HOME</span></span>
-            </div>
-            <span class="text-2xl font-bold w-8 text-center tabular-nums">${showScore ? (home.score ?? 0) : ''}</span>
-          </div>
-          <div class="text-center text-sm ${statusClass}">${statusText}</div>
-          ${predBadge}
-        </div>`;
+            <div class="text-center text-sm ${statusClass}">${statusText}</div>
+            ${predBadge}
+          </div>`;
+      } catch (cardErr) {
+        // One malformed game record should never take down the whole tab.
+        console.warn('Error rendering game card:', cardErr);
+        return '';
+      }
     }).join('');
 
     scoresContainer.innerHTML = `
       <div class="flex items-center justify-between mb-4">
-        <h2 class="text-xl font-bold">Games — ${scoresRes.currentDate || 'Today'}</h2>
+        <h2 class="text-xl font-bold">Games — ${displayDate}</h2>
         <span class="text-xs text-gray-500">Predictions for scheduled games</span>
       </div>
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">${html}</div>`;
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">${cards}</div>`;
   } catch (err) {
     scoresContainer.innerHTML = `<p class="text-red-400">Error loading scores: ${err.message}</p>`;
   } finally {
@@ -510,8 +534,9 @@ function mergeLeadersData(pointsData, goalsData, assistsData) {
 }
 
 async function fetchScoringLeaders(displayLimit = 50) {
-  const season = getCurrentSeason();
-  // Fetch with a wider net (100) so all top-50 point leaders appear in the goals/assists lists
+  // Use /current — avoids hardcoding a season+gametype that can 404.
+  // Fetch 100 from each category so every top-50 point leader also
+  // appears in the goals/assists lists, giving accurate merged stats.
   const fetchLimit = 100;
 
   // 1 — Try daily-cached JSON files first (committed by GitHub Actions cron)
@@ -533,14 +558,14 @@ async function fetchScoringLeaders(displayLimit = 50) {
     }
   } catch (_) { /* cache miss — fall through to live */ }
 
-  // 2 — Live fetch via proxy
+  // 2 — Live fetch via /api/nhl proxy (never hits nhle.com directly from browser)
   const [ptRes, gRes, aRes] = await Promise.all([
-    fetch(`${API_BASE}/skater-stats-leaders/${season}/2?categories=points&limit=${fetchLimit}`),
-    fetch(`${API_BASE}/skater-stats-leaders/${season}/2?categories=goals&limit=${fetchLimit}`),
-    fetch(`${API_BASE}/skater-stats-leaders/${season}/2?categories=assists&limit=${fetchLimit}`),
+    fetch(`${API_BASE}/skater-stats-leaders/current?categories=points&limit=${fetchLimit}`),
+    fetch(`${API_BASE}/skater-stats-leaders/current?categories=goals&limit=${fetchLimit}`),
+    fetch(`${API_BASE}/skater-stats-leaders/current?categories=assists&limit=${fetchLimit}`),
   ]);
 
-  if (!ptRes.ok) throw new Error(`NHL API returned HTTP ${ptRes.status} (season ${season})`);
+  if (!ptRes.ok) throw new Error(`NHL API returned HTTP ${ptRes.status} for scoring leaders`);
 
   const [ptData, gData, aData] = await Promise.all([ptRes.json(), gRes.json(), aRes.json()]);
   return mergeLeadersData(ptData, gData, aData).slice(0, displayLimit);
