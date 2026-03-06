@@ -69,6 +69,7 @@ function getCurrentSeason() {
 
 // ─── Team Dropdown (Team Stats tab) ───────────────────────────────────────────
 // Uses ESPN standings (CORS-friendly, no proxy needed) to build the team list.
+// ESPN structure: data.children[conf].standings.entries[team]  (no division nesting)
 async function populateDropdown() {
   try {
     const res = await fetch('https://site.api.espn.com/apis/v2/sports/hockey/nhl/standings');
@@ -78,13 +79,11 @@ async function populateDropdown() {
     const teams = [];
     const seen  = new Set();
     for (const conf of (data.children || [])) {
-      for (const div of (conf.children || [])) {
-        for (const entry of (div.standings?.entries || [])) {
-          const abbrev = entry.team.abbreviation;
-          if (seen.has(abbrev)) continue;
-          seen.add(abbrev);
-          teams.push({ abbrev, name: entry.team.displayName });
-        }
+      for (const entry of (conf.standings?.entries || [])) {
+        const abbrev = entry.team.abbreviation;
+        if (seen.has(abbrev)) continue;
+        seen.add(abbrev);
+        teams.push({ abbrev, name: entry.team.displayName });
       }
     }
     teams.sort((a, b) => a.name.localeCompare(b.name));
@@ -269,61 +268,60 @@ async function fetchStandings() {
     const getStat    = (stats, name) => stats.find(s => s.name === name)?.value ?? 0;
     const getStatStr = (stats, name) => stats.find(s => s.name === name)?.displayValue ?? '—';
 
-    standingsContainer.innerHTML = (data.children || []).map(conf =>
-      (conf.children || []).map(div => {
-        const entries = [...(div.standings?.entries || [])].sort((a, b) =>
-          getStat(b.stats, 'points') - getStat(a.stats, 'points') ||
-          getStat(b.stats, 'regulationOvertimeWins') - getStat(a.stats, 'regulationOvertimeWins')
-        );
+    // ESPN standings: data.children = conferences, each with .standings.entries (no division nesting)
+    standingsContainer.innerHTML = (data.children || []).map(conf => {
+      const entries = [...(conf.standings?.entries || [])].sort((a, b) =>
+        getStat(b.stats, 'points') - getStat(a.stats, 'points') ||
+        getStat(b.stats, 'regulationOvertimeWins') - getStat(a.stats, 'regulationOvertimeWins')
+      );
 
-        const rows = entries.map((entry, i) => {
-          const t    = entry.team;
-          const s    = entry.stats;
-          const logo = `https://a.espncdn.com/i/teamlogos/nhl/500/${t.abbreviation.toLowerCase()}.png`;
-          const gd   = getStat(s, 'goalDifferential');
-          return `
-            <tr class="border-b border-gray-700 hover:bg-gray-700/50">
-              <td class="py-2 px-3">${i + 1}</td>
-              <td class="py-2 px-3 flex items-center gap-2">
-                <img src="${logo}" alt="" class="w-6 h-6" onerror="this.style.display='none'">
-                ${t.abbreviation} — ${t.displayName}
-              </td>
-              <td class="py-2 px-3 text-center">${getStatStr(s, 'gamesPlayed')}</td>
-              <td class="py-2 px-3 text-center">${getStatStr(s, 'wins')}</td>
-              <td class="py-2 px-3 text-center">${getStatStr(s, 'losses')}</td>
-              <td class="py-2 px-3 text-center">${getStatStr(s, 'overtimeLosses')}</td>
-              <td class="py-2 px-3 text-center font-semibold">${getStatStr(s, 'points')}</td>
-              <td class="py-2 px-3 text-center">${getStatStr(s, 'goalsFor')}</td>
-              <td class="py-2 px-3 text-center">${getStatStr(s, 'goalsAgainst')}</td>
-              <td class="py-2 px-3 text-center">${gd > 0 ? '+' : ''}${gd}</td>
-            </tr>`;
-        }).join('');
-
+      const rows = entries.map((entry, i) => {
+        const t    = entry.team;
+        const s    = entry.stats;
+        const logo = `https://a.espncdn.com/i/teamlogos/nhl/500/${t.abbreviation.toLowerCase()}.png`;
+        const gd   = getStat(s, 'goalDifferential');
         return `
-          <div class="mb-6">
-            <h3 class="text-lg font-semibold mb-2 text-gray-300">${div.name}</h3>
-            <div class="overflow-x-auto">
-              <table class="w-full text-sm bg-nhl-card rounded-lg">
-                <thead>
-                  <tr class="border-b border-gray-600 text-gray-400 text-xs uppercase">
-                    <th class="py-2 px-3 text-left">#</th>
-                    <th class="py-2 px-3 text-left">Team</th>
-                    <th class="py-2 px-3 text-center">GP</th>
-                    <th class="py-2 px-3 text-center">W</th>
-                    <th class="py-2 px-3 text-center">L</th>
-                    <th class="py-2 px-3 text-center">OTL</th>
-                    <th class="py-2 px-3 text-center">PTS</th>
-                    <th class="py-2 px-3 text-center">GF</th>
-                    <th class="py-2 px-3 text-center">GA</th>
-                    <th class="py-2 px-3 text-center">DIFF</th>
-                  </tr>
-                </thead>
-                <tbody>${rows}</tbody>
-              </table>
-            </div>
-          </div>`;
-      }).join('')
-    ).join('');
+          <tr class="border-b border-gray-700 hover:bg-gray-700/50">
+            <td class="py-2 px-3">${i + 1}</td>
+            <td class="py-2 px-3 flex items-center gap-2">
+              <img src="${logo}" alt="" class="w-6 h-6" onerror="this.style.display='none'">
+              ${t.abbreviation} — ${t.displayName}
+            </td>
+            <td class="py-2 px-3 text-center">${getStatStr(s, 'gamesPlayed')}</td>
+            <td class="py-2 px-3 text-center">${getStatStr(s, 'wins')}</td>
+            <td class="py-2 px-3 text-center">${getStatStr(s, 'losses')}</td>
+            <td class="py-2 px-3 text-center">${getStatStr(s, 'overtimeLosses')}</td>
+            <td class="py-2 px-3 text-center font-semibold">${getStatStr(s, 'points')}</td>
+            <td class="py-2 px-3 text-center">${getStatStr(s, 'goalsFor')}</td>
+            <td class="py-2 px-3 text-center">${getStatStr(s, 'goalsAgainst')}</td>
+            <td class="py-2 px-3 text-center">${gd > 0 ? '+' : ''}${gd}</td>
+          </tr>`;
+      }).join('');
+
+      return `
+        <div class="mb-6">
+          <h3 class="text-lg font-semibold mb-2 text-gray-300">${conf.name}</h3>
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm bg-nhl-card rounded-lg">
+              <thead>
+                <tr class="border-b border-gray-600 text-gray-400 text-xs uppercase">
+                  <th class="py-2 px-3 text-left">#</th>
+                  <th class="py-2 px-3 text-left">Team</th>
+                  <th class="py-2 px-3 text-center">GP</th>
+                  <th class="py-2 px-3 text-center">W</th>
+                  <th class="py-2 px-3 text-center">L</th>
+                  <th class="py-2 px-3 text-center">OTL</th>
+                  <th class="py-2 px-3 text-center">PTS</th>
+                  <th class="py-2 px-3 text-center">GF</th>
+                  <th class="py-2 px-3 text-center">GA</th>
+                  <th class="py-2 px-3 text-center">DIFF</th>
+                </tr>
+              </thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+        </div>`;
+    }).join('');
   } catch (err) {
     standingsContainer.innerHTML = `<p class="text-red-400">Error loading standings: ${err.message}</p>`;
   } finally {
@@ -352,28 +350,26 @@ async function fetchStandingsMap() {
   const map     = {};
   const getStat = (stats, name) => stats.find(s => s.name === name)?.value ?? 0;
 
+  // ESPN: data.children = conferences, each with .standings.entries (no division nesting)
   for (const conf of (espnData.children || [])) {
-    for (const div of (conf.children || [])) {
-      for (const entry of (div.standings?.entries || [])) {
-        const abbrev = entry.team.abbreviation;
-        const s      = entry.stats;
-        const adv    = advStats[abbrev] ?? {};
-        map[abbrev]  = {
-          points:      getStat(s, 'points'),
-          gamesPlayed: getStat(s, 'gamesPlayed'),
-          goalFor:     getStat(s, 'goalsFor'),
-          goalAgainst: getStat(s, 'goalsAgainst'),
-          wins:        getStat(s, 'wins'),
-          losses:      getStat(s, 'losses'),
-          otLosses:    getStat(s, 'overtimeLosses'),
-          streakCode:  '',
-          streakCount: 0,
-          // NST advanced stats (null when unavailable)
-          cfPct:   adv.cfPct   ?? null,
-          xgfPct:  adv.xgfPct  ?? null,
-          hdcfPct: adv.hdcfPct ?? null,
-        };
-      }
+    for (const entry of (conf.standings?.entries || [])) {
+      const abbrev = entry.team.abbreviation;
+      const s      = entry.stats;
+      const adv    = advStats[abbrev] ?? {};
+      map[abbrev]  = {
+        points:      getStat(s, 'points'),
+        gamesPlayed: getStat(s, 'gamesPlayed'),
+        goalFor:     getStat(s, 'goalsFor'),
+        goalAgainst: getStat(s, 'goalsAgainst'),
+        wins:        getStat(s, 'wins'),
+        losses:      getStat(s, 'losses'),
+        otLosses:    getStat(s, 'overtimeLosses'),
+        streakCode:  '',
+        streakCount: 0,
+        cfPct:   adv.cfPct   ?? null,
+        xgfPct:  adv.xgfPct  ?? null,
+        hdcfPct: adv.hdcfPct ?? null,
+      };
     }
   }
   return map;
