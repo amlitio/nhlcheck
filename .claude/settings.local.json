@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:nhlcheck-gkbw1defi-ubus-projects.vercel.app)",
+      "WebFetch(domain:api-web.nhle.com)",
+      "WebFetch(domain:www.naturalstattrick.com)"
     ]
   }
 }

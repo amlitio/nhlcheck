@@ -68,24 +68,29 @@ function getCurrentSeason() {
 }
 
 // ─── Team Dropdown (Team Stats tab) ───────────────────────────────────────────
+// Uses ESPN standings (CORS-friendly, no proxy needed) to build the team list.
 async function populateDropdown() {
   try {
-    const res = await fetch(`${API_BASE}/standings/now`);
+    const res = await fetch('https://site.api.espn.com/apis/v2/sports/hockey/nhl/standings');
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
 
-    const teams = data.standings
-      .map(t => ({
-        abbrev: t.teamAbbrev.default,          // standings uses {default:string}
-        name:   `${t.placeName.default} ${t.teamCommonName.default}`,
-      }))
-      .sort((a, b) => a.name.localeCompare(b.name));
+    const teams = [];
+    const seen  = new Set();
+    for (const conf of (data.children || [])) {
+      for (const div of (conf.children || [])) {
+        for (const entry of (div.standings?.entries || [])) {
+          const abbrev = entry.team.abbreviation;
+          if (seen.has(abbrev)) continue;
+          seen.add(abbrev);
+          teams.push({ abbrev, name: entry.team.displayName });
+        }
+      }
+    }
+    teams.sort((a, b) => a.name.localeCompare(b.name));
 
-    const seen = new Set();
     teams.forEach(team => {
-      if (seen.has(team.abbrev)) return;
-      seen.add(team.abbrev);
-      const opt = document.createElement('option');
+      const opt       = document.createElement('option');
       opt.value       = team.abbrev;
       opt.textContent = team.name;
       teamSelect.appendChild(opt);
@@ -253,70 +258,72 @@ teamSelect.addEventListener('change', async () => {
 });
 
 // ─── Standings ─────────────────────────────────────────────────────────────────
+// Data from ESPN (CORS-friendly). Organized conference → division → teams.
 async function fetchStandings() {
   showLoading(standingsLoading);
   try {
-    const res = await fetch(`${API_BASE}/standings/now`);
+    const res = await fetch('https://site.api.espn.com/apis/v2/sports/hockey/nhl/standings');
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
 
-    const divisions = {};
-    data.standings.forEach(t => {
-      const d = t.divisionName;
-      if (!divisions[d]) divisions[d] = [];
-      divisions[d].push(t);
-    });
-    Object.values(divisions).forEach(arr =>
-      arr.sort((a, b) => b.points - a.points || b.regulationWins - a.regulationWins)
-    );
+    const getStat    = (stats, name) => stats.find(s => s.name === name)?.value ?? 0;
+    const getStatStr = (stats, name) => stats.find(s => s.name === name)?.displayValue ?? '—';
 
-    const divOrder = ['Atlantic', 'Metropolitan', 'Central', 'Pacific'];
-    standingsContainer.innerHTML = divOrder.map(divName => {
-      const teams = divisions[divName];
-      if (!teams) return '';
-      const rows = teams.map((t, i) => `
-        <tr class="border-b border-gray-700 hover:bg-gray-700/50">
-          <td class="py-2 px-3">${i + 1}</td>
-          <td class="py-2 px-3 flex items-center gap-2">
-            <img src="${t.teamLogo}" alt="" class="w-6 h-6" onerror="this.style.display='none'">
-            ${t.teamAbbrev.default} — ${t.placeName.default} ${t.teamCommonName.default}
-          </td>
-          <td class="py-2 px-3 text-center">${t.gamesPlayed}</td>
-          <td class="py-2 px-3 text-center">${t.wins}</td>
-          <td class="py-2 px-3 text-center">${t.losses}</td>
-          <td class="py-2 px-3 text-center">${t.otLosses}</td>
-          <td class="py-2 px-3 text-center font-semibold">${t.points}</td>
-          <td class="py-2 px-3 text-center">${t.goalFor}</td>
-          <td class="py-2 px-3 text-center">${t.goalAgainst}</td>
-          <td class="py-2 px-3 text-center">${t.goalDifferential > 0 ? '+' : ''}${t.goalDifferential}</td>
-          <td class="py-2 px-3 text-center">${t.streakCode}${t.streakCount}</td>
-        </tr>`).join('');
+    standingsContainer.innerHTML = (data.children || []).map(conf =>
+      (conf.children || []).map(div => {
+        const entries = [...(div.standings?.entries || [])].sort((a, b) =>
+          getStat(b.stats, 'points') - getStat(a.stats, 'points') ||
+          getStat(b.stats, 'regulationOvertimeWins') - getStat(a.stats, 'regulationOvertimeWins')
+        );
 
-      return `
-        <div class="mb-6">
-          <h3 class="text-lg font-semibold mb-2 text-gray-300">${divName} Division</h3>
-          <div class="overflow-x-auto">
-            <table class="w-full text-sm bg-nhl-card rounded-lg">
-              <thead>
-                <tr class="border-b border-gray-600 text-gray-400 text-xs uppercase">
-                  <th class="py-2 px-3 text-left">#</th>
-                  <th class="py-2 px-3 text-left">Team</th>
-                  <th class="py-2 px-3 text-center">GP</th>
-                  <th class="py-2 px-3 text-center">W</th>
-                  <th class="py-2 px-3 text-center">L</th>
-                  <th class="py-2 px-3 text-center">OTL</th>
-                  <th class="py-2 px-3 text-center">PTS</th>
-                  <th class="py-2 px-3 text-center">GF</th>
-                  <th class="py-2 px-3 text-center">GA</th>
-                  <th class="py-2 px-3 text-center">DIFF</th>
-                  <th class="py-2 px-3 text-center">STRK</th>
-                </tr>
-              </thead>
-              <tbody>${rows}</tbody>
-            </table>
-          </div>
-        </div>`;
-    }).join('');
+        const rows = entries.map((entry, i) => {
+          const t    = entry.team;
+          const s    = entry.stats;
+          const logo = `https://a.espncdn.com/i/teamlogos/nhl/500/${t.abbreviation.toLowerCase()}.png`;
+          const gd   = getStat(s, 'goalDifferential');
+          return `
+            <tr class="border-b border-gray-700 hover:bg-gray-700/50">
+              <td class="py-2 px-3">${i + 1}</td>
+              <td class="py-2 px-3 flex items-center gap-2">
+                <img src="${logo}" alt="" class="w-6 h-6" onerror="this.style.display='none'">
+                ${t.abbreviation} — ${t.displayName}
+              </td>
+              <td class="py-2 px-3 text-center">${getStatStr(s, 'gamesPlayed')}</td>
+              <td class="py-2 px-3 text-center">${getStatStr(s, 'wins')}</td>
+              <td class="py-2 px-3 text-center">${getStatStr(s, 'losses')}</td>
+              <td class="py-2 px-3 text-center">${getStatStr(s, 'overtimeLosses')}</td>
+              <td class="py-2 px-3 text-center font-semibold">${getStatStr(s, 'points')}</td>
+              <td class="py-2 px-3 text-center">${getStatStr(s, 'goalsFor')}</td>
+              <td class="py-2 px-3 text-center">${getStatStr(s, 'goalsAgainst')}</td>
+              <td class="py-2 px-3 text-center">${gd > 0 ? '+' : ''}${gd}</td>
+            </tr>`;
+        }).join('');
+
+        return `
+          <div class="mb-6">
+            <h3 class="text-lg font-semibold mb-2 text-gray-300">${div.name}</h3>
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm bg-nhl-card rounded-lg">
+                <thead>
+                  <tr class="border-b border-gray-600 text-gray-400 text-xs uppercase">
+                    <th class="py-2 px-3 text-left">#</th>
+                    <th class="py-2 px-3 text-left">Team</th>
+                    <th class="py-2 px-3 text-center">GP</th>
+                    <th class="py-2 px-3 text-center">W</th>
+                    <th class="py-2 px-3 text-center">L</th>
+                    <th class="py-2 px-3 text-center">OTL</th>
+                    <th class="py-2 px-3 text-center">PTS</th>
+                    <th class="py-2 px-3 text-center">GF</th>
+                    <th class="py-2 px-3 text-center">GA</th>
+                    <th class="py-2 px-3 text-center">DIFF</th>
+                  </tr>
+                </thead>
+                <tbody>${rows}</tbody>
+              </table>
+            </div>
+          </div>`;
+      }).join('')
+    ).join('');
   } catch (err) {
     standingsContainer.innerHTML = `<p class="text-red-400">Error loading standings: ${err.message}</p>`;
   } finally {
@@ -325,15 +332,50 @@ async function fetchStandings() {
 }
 
 // ─── Standings Map (for predictions) ──────────────────────────────────────────
-// Returns { "EDM": { points, gamesPlayed, goalFor, goalAgainst, streakCode, streakCount, ... }, ... }
+// Returns { "EDM": { points, gamesPlayed, goalFor, goalAgainst, cfPct, xgfPct, ... }, ... }
+// ESPN standings + NST advanced stats merged. Failure of either degrades gracefully.
 async function fetchStandingsMap() {
-  const res = await fetch(`${API_BASE}/standings/now`);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const data = await res.json();
-  const map = {};
-  (data.standings || []).forEach(t => {
-    map[t.teamAbbrev.default] = t;
-  });
+  const [espnRes, nstRes] = await Promise.all([
+    fetch('https://site.api.espn.com/apis/v2/sports/hockey/nhl/standings'),
+    fetch('/api/scrape-stats').catch(() => null),
+  ]);
+
+  if (!espnRes.ok) throw new Error(`ESPN HTTP ${espnRes.status}`);
+  const espnData = await espnRes.json();
+
+  // Advanced stats from NST — silently ignored if unavailable
+  let advStats = {};
+  try {
+    if (nstRes?.ok) advStats = await nstRes.json();
+  } catch (_) { /* ignore */ }
+
+  const map     = {};
+  const getStat = (stats, name) => stats.find(s => s.name === name)?.value ?? 0;
+
+  for (const conf of (espnData.children || [])) {
+    for (const div of (conf.children || [])) {
+      for (const entry of (div.standings?.entries || [])) {
+        const abbrev = entry.team.abbreviation;
+        const s      = entry.stats;
+        const adv    = advStats[abbrev] ?? {};
+        map[abbrev]  = {
+          points:      getStat(s, 'points'),
+          gamesPlayed: getStat(s, 'gamesPlayed'),
+          goalFor:     getStat(s, 'goalsFor'),
+          goalAgainst: getStat(s, 'goalsAgainst'),
+          wins:        getStat(s, 'wins'),
+          losses:      getStat(s, 'losses'),
+          otLosses:    getStat(s, 'overtimeLosses'),
+          streakCode:  '',
+          streakCount: 0,
+          // NST advanced stats (null when unavailable)
+          cfPct:   adv.cfPct   ?? null,
+          xgfPct:  adv.xgfPct  ?? null,
+          hdcfPct: adv.hdcfPct ?? null,
+        };
+      }
+    }
+  }
   return map;
 }
 
@@ -354,8 +396,15 @@ function predictGame(homeAbbrev, awayAbbrev, standingsMap) {
   const teamScore = t => {
     const ptsPct  = t.points / Math.max(t.gamesPlayed * 2, 1);
     const gdPerGP = (t.goalFor - t.goalAgainst) / Math.max(t.gamesPlayed, 1);
-    // Normalize GD: typical range is roughly -2 to +2 per game → map to 0–1
     const gdNorm  = Math.min(1, Math.max(0, (gdPerGP + 2) / 4));
+
+    // When NST advanced stats are available, use a 4-factor model;
+    // otherwise fall back to the original 2-factor model.
+    if (t.xgfPct != null && t.cfPct != null) {
+      const xgfNorm  = t.xgfPct  / 100; // already a 0–100 percentage
+      const cfNorm   = t.cfPct   / 100;
+      return ptsPct * 0.45 + gdNorm * 0.25 + xgfNorm * 0.20 + cfNorm * 0.10;
+    }
     return ptsPct * 0.60 + gdNorm * 0.40;
   };
 
@@ -378,73 +427,96 @@ function predictGame(homeAbbrev, awayAbbrev, standingsMap) {
   return { pick, confidence, homeWinPct: Math.round(homeWinPct * 100), streakLabel };
 }
 
+// ─── Odds Helper ──────────────────────────────────────────────────────────────
+// Returns a map keyed by "AWAYABBREV_HOMEABBREV" → odds object.
+// Silently returns {} if /api/odds is unconfigured or fails.
+async function fetchOdds() {
+  try {
+    const res = await fetch('/api/odds');
+    if (!res.ok) return {};
+    const games = await res.json();
+    return Object.fromEntries((Array.isArray(games) ? games : []).map(g => [g.matchKey, g]));
+  } catch (_) {
+    return {};
+  }
+}
+
+// Format an American odds number for display: +120, -140, etc.
+function fmtOdds(n) {
+  if (n == null) return '—';
+  return n > 0 ? `+${n}` : String(n);
+}
+
 // ─── Today's Scores + Predictions ─────────────────────────────────────────────
+// Data from ESPN scoreboard (CORS-friendly, no proxy needed).
 async function fetchScores() {
   showLoading(scoresLoading);
   try {
-    // /schedule/now returns gameWeek[{date, games:[...]}]
-    // Fetch games and standings in parallel; standings failure is non-fatal.
-    const [schedRes, standingsMap] = await Promise.all([
-      fetch(`${API_BASE}/schedule/now`).then(r => {
+    const [boardRes, standingsMap, oddsMap] = await Promise.all([
+      fetch('https://site.api.espn.com/apis/site/v2/sports/hockey/nhl/scoreboard').then(r => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
       }),
       fetchStandingsMap().catch(() => ({})),
+      fetchOdds(),
     ]);
 
-    // Flatten today's games from the gameWeek structure
-    const todayBlock = schedRes.gameWeek?.[0] ?? {};
-    const games      = todayBlock.games ?? [];
-    const displayDate = todayBlock.date ?? 'Today';
+    const events      = boardRes.events ?? [];
+    const displayDate = boardRes.day?.date ?? 'Today';
 
-    if (!games.length) {
+    if (!events.length) {
       scoresContainer.innerHTML = `<p class="text-gray-400">No games scheduled for today.</p>`;
       return;
     }
 
-    // Render each game card; wrap individually so one bad record can't blank the tab.
-    const cards = games.map(game => {
+    const cards = events.map(event => {
       try {
-        const away  = game.awayTeam ?? {};
-        const home  = game.homeTeam ?? {};
-        const state = game.gameState ?? 'FUT';
+        const comp       = event.competitions?.[0] ?? {};
+        const competitors = comp.competitors ?? [];
+        const homeComp   = competitors.find(c => c.homeAway === 'home') ?? {};
+        const awayComp   = competitors.find(c => c.homeAway === 'away') ?? {};
+        const homeTeam   = homeComp.team ?? {};
+        const awayTeam   = awayComp.team ?? {};
 
-        // /schedule/now does not include logo URLs — reconstruct from abbreviation.
-        // NHL logo CDN pattern: https://assets.nhle.com/logos/nhl/svg/{ABBREV}_light.svg
-        const awayLogo = `https://assets.nhle.com/logos/nhl/svg/${away.abbrev}_light.svg`;
-        const homeLogo = `https://assets.nhle.com/logos/nhl/svg/${home.abbrev}_light.svg`;
+        // ESPN status.type.state: 'pre' = future, 'in' = live, 'post' = final
+        const state      = event.status?.type?.state ?? 'pre';
+        const statusName = event.status?.type?.name  ?? '';
+
+        // ESPN CDN logo by abbreviation
+        const homeLogo = `https://a.espncdn.com/i/teamlogos/nhl/500/${(homeTeam.abbreviation || '').toLowerCase()}.png`;
+        const awayLogo = `https://a.espncdn.com/i/teamlogos/nhl/500/${(awayTeam.abbreviation || '').toLowerCase()}.png`;
 
         let statusText  = '';
         let statusClass = 'text-gray-400';
 
-        if (state === 'FUT' || state === 'PRE') {
-          statusText = new Date(game.startTimeUTC).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-        } else if (state === 'LIVE' || state === 'CRIT') {
-          const period = game.periodDescriptor?.number ? `P${game.periodDescriptor.number}` : '';
-          const clock  = game.clock?.timeRemaining ?? '';
-          statusText   = `${period} ${clock}`.trim();
-          statusClass  = 'text-green-400 font-semibold animate-pulse';
-        } else if (state === 'OFF') {
-          const ot     = game.gameOutcome?.lastPeriodType;
-          statusText   = ot && ot !== 'REG' ? `Final/${ot}` : 'Final';
+        if (state === 'pre') {
+          // Use ESPN's pre-formatted detail string, e.g. "7:30 PM ET"
+          statusText = event.status?.type?.detail
+            ?? new Date(event.date).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+        } else if (state === 'in') {
+          statusText  = event.status?.type?.shortDetail ?? 'Live';
+          statusClass = 'text-green-400 font-semibold animate-pulse';
+        } else {
+          // post — STATUS_FINAL, STATUS_FINAL_OT, STATUS_FINAL_SO, etc.
+          statusText = event.status?.type?.shortDetail ?? 'Final';
         }
 
-        // Prediction badge — only for not-yet-started games; silently skip if data missing.
+        // Prediction badge for not-yet-started games
         let predBadge = '';
-        if ((state === 'FUT' || state === 'PRE') && home.abbrev && away.abbrev) {
-          const pred = predictGame(home.abbrev, away.abbrev, standingsMap);
+        if (state === 'pre' && homeTeam.abbreviation && awayTeam.abbreviation) {
+          const pred = predictGame(homeTeam.abbreviation, awayTeam.abbreviation, standingsMap);
           if (pred) {
             predBadge = `
               <div class="mt-3 pt-3 border-t border-gray-700">
                 <div class="flex items-center justify-between">
                   <span class="text-xs text-gray-500 uppercase tracking-wide">Prediction</span>
                   <div class="flex items-center gap-2">
-                    <span class="text-xs font-bold ${pred.pick === home.abbrev ? 'text-blue-300' : 'text-orange-300'}">
+                    <span class="text-xs font-bold ${pred.pick === homeTeam.abbreviation ? 'text-blue-300' : 'text-orange-300'}">
                       ${pred.pick}
                     </span>
                     <div class="flex items-center gap-1">
                       <div class="h-1.5 rounded-full bg-gray-700 w-16 overflow-hidden">
-                        <div class="h-full rounded-full ${pred.pick === home.abbrev ? 'bg-blue-500' : 'bg-orange-400'}"
+                        <div class="h-full rounded-full ${pred.pick === homeTeam.abbreviation ? 'bg-blue-500' : 'bg-orange-400'}"
                              style="width:${pred.confidence}%"></div>
                       </div>
                       <span class="text-xs text-gray-400">${pred.confidence}%</span>
@@ -453,37 +525,52 @@ async function fetchScores() {
                 </div>
                 ${pred.streakLabel ? `<div class="text-xs text-gray-600 text-right mt-0.5">${pred.streakLabel}</div>` : ''}
                 <div class="flex justify-between text-xs text-gray-600 mt-1">
-                  <span>${away.abbrev} ${100 - pred.homeWinPct}%</span>
+                  <span>${awayTeam.abbreviation} ${100 - pred.homeWinPct}%</span>
                   <span class="text-gray-500">Home ice incl.</span>
-                  <span>${home.abbrev} ${pred.homeWinPct}%</span>
+                  <span>${homeTeam.abbreviation} ${pred.homeWinPct}%</span>
                 </div>
               </div>`;
           }
         }
 
-        const showScore = state !== 'FUT' && state !== 'PRE';
+        const showScore = state !== 'pre';
+
+        // Live sportsbook odds from The Odds API (pre-game only)
+        const oddsKey  = `${awayTeam.abbreviation}_${homeTeam.abbreviation}`;
+        const gameOdds = state === 'pre' ? (oddsMap[oddsKey] ?? null) : null;
+        const oddsBadge = gameOdds ? `
+          <div class="mt-2 pt-2 border-t border-gray-700/50">
+            <div class="flex items-center justify-between text-xs">
+              <span class="text-gray-500 uppercase tracking-wide text-[10px]">Live Odds</span>
+              <span class="text-gray-600 text-[10px]">${gameOdds.bookmaker}</span>
+            </div>
+            <div class="flex justify-between items-center mt-1 text-xs tabular-nums">
+              <span class="text-gray-300">${awayTeam.abbreviation} <span class="${(gameOdds.awayOdds ?? 0) > 0 ? 'text-green-400' : 'text-red-400'} font-semibold">${fmtOdds(gameOdds.awayOdds)}</span></span>
+              ${gameOdds.total != null ? `<span class="text-gray-500">O/U <span class="text-gray-300">${gameOdds.total}</span> <span class="text-gray-500">(${fmtOdds(gameOdds.overOdds)})</span></span>` : ''}
+              <span class="text-gray-300">${homeTeam.abbreviation} <span class="${(gameOdds.homeOdds ?? 0) > 0 ? 'text-green-400' : 'text-red-400'} font-semibold">${fmtOdds(gameOdds.homeOdds)}</span></span>
+            </div>
+          </div>` : '';
 
         return `
           <div class="bg-nhl-card rounded-lg p-4 flex flex-col gap-3 border border-gray-700/30">
             <div class="flex items-center justify-between">
               <div class="flex items-center gap-3 flex-1">
                 <img src="${awayLogo}" alt="" class="w-10 h-10" onerror="this.style.display='none'">
-                <span class="font-medium">${away.abbrev ?? '—'}</span>
+                <span class="font-medium">${awayTeam.abbreviation ?? '—'}</span>
               </div>
-              <span class="text-2xl font-bold w-8 text-center tabular-nums">${showScore ? (away.score ?? 0) : ''}</span>
+              <span class="text-2xl font-bold w-8 text-center tabular-nums">${showScore ? (awayComp.score ?? 0) : ''}</span>
             </div>
             <div class="flex items-center justify-between">
               <div class="flex items-center gap-3 flex-1">
                 <img src="${homeLogo}" alt="" class="w-10 h-10" onerror="this.style.display='none'">
-                <span class="font-medium">${home.abbrev ?? '—'} <span class="text-xs text-gray-500">HOME</span></span>
+                <span class="font-medium">${homeTeam.abbreviation ?? '—'} <span class="text-xs text-gray-500">HOME</span></span>
               </div>
-              <span class="text-2xl font-bold w-8 text-center tabular-nums">${showScore ? (home.score ?? 0) : ''}</span>
+              <span class="text-2xl font-bold w-8 text-center tabular-nums">${showScore ? (homeComp.score ?? 0) : ''}</span>
             </div>
             <div class="text-center text-sm ${statusClass}">${statusText}</div>
-            ${predBadge}
+            ${predBadge}${oddsBadge}
           </div>`;
       } catch (cardErr) {
-        // One malformed game record should never take down the whole tab.
         console.warn('Error rendering game card:', cardErr);
         return '';
       }
