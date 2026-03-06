@@ -1,0 +1,13 @@
+{
+  "name": "nhlcheck",
+  "version": "1.0.0",
+  "description": "NHL stats and predictions web app",
+  "private": true,
+  "scripts": {
+    "dev": "vercel dev",
+    "deploy": "vercel --prod"
+  },
+  "devDependencies": {
+    "vercel": "^37.0.0"
+  }
+}

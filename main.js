@@ -1,5 +1,7 @@
 // ─── Constants & DOM References ────────────────────────────────────────────────
-const API_BASE = 'https://api-web.nhle.com/v1';
+// All NHL API calls go through Vercel's server-side proxy (/nhl-api/* → api-web.nhle.com/v1/*)
+// This avoids CORS issues — api-web.nhle.com blocks direct browser requests from localhost.
+const API_BASE = '/nhl-api';
 
 const teamSelect        = document.getElementById('team-select');
 const statsContainer    = document.getElementById('stats-container');
@@ -450,12 +452,13 @@ async function fetchScoringLeaders(limit = 25) {
     }
   } catch (_) { /* cache miss — fall through to live fetch */ }
 
-  // 2. Live fetch from NHL API
+  // 2. Live fetch from NHL API (via Vercel proxy — no CORS issues)
   const [ptRes, gRes, aRes] = await Promise.all([
     fetch(`${API_BASE}/skater-stats-leaders/${season}/2?categories=points&limit=${limit}`),
     fetch(`${API_BASE}/skater-stats-leaders/${season}/2?categories=goals&limit=${limit}`),
     fetch(`${API_BASE}/skater-stats-leaders/${season}/2?categories=assists&limit=${limit}`),
   ]);
+  if (!ptRes.ok) throw new Error(`NHL API returned HTTP ${ptRes.status} for scoring leaders (season ${season})`);
   const [ptData, gData, aData] = await Promise.all([ptRes.json(), gRes.json(), aRes.json()]);
   return mergeLeadersData(ptData, gData, aData);
 }
