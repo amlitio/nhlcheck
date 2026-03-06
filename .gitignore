@@ -24,5 +24,12 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+<<<<<<< HEAD
 .vercel
 .env*.local
+=======
+
+# Vercel and Next.js specific
+.vercel/
+.next/
+>>>>>>> 1314c24278a369df6dc13267bd178cbdb4e7aaef
