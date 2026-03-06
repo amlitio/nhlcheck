@@ -535,9 +535,8 @@ function mergeLeadersData(pointsData, goalsData, assistsData) {
 
 async function fetchScoringLeaders(displayLimit = 50) {
   // Use /current — avoids hardcoding a season+gametype that can 404.
-  // Fetch 100 from each category so every top-50 point leader also
-  // appears in the goals/assists lists, giving accurate merged stats.
-  const fetchLimit = 100;
+  // limit=50 is the max the NHL API accepts for this endpoint.
+  const fetchLimit = 50;
 
   // 1 — Try daily-cached JSON files first (committed by GitHub Actions cron)
   try {
