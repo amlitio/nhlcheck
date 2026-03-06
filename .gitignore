@@ -24,3 +24,7 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+
+# Vercel and Next.js specific
+.vercel/
+.next/
