@@ -1,0 +1,80 @@
+name: Daily NHL Data Cache
+
+on:
+  schedule:
+    # Runs every day at 12:00 UTC (8 AM ET) — after overnight games have finished
+    - cron: '0 12 * * *'
+  workflow_dispatch:  # Allow manual trigger from the Actions tab
+
+permissions:
+  contents: write  # Required to commit the cached data files
+
+jobs:
+  cache-data:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Determine current NHL season
+        id: season
+        run: |
+          YEAR=$(date -u +%Y)
+          MONTH=$(date -u +%m)
+          # NHL season starts in October; before October we're in the previous season
+          if [ "$MONTH" -ge 10 ]; then
+            SEASON="${YEAR}$((YEAR + 1))"
+          else
+            SEASON="$((YEAR - 1))${YEAR}"
+          fi
+          echo "season=$SEASON" >> "$GITHUB_OUTPUT"
+          echo "Resolved season: $SEASON"
+
+      - name: Fetch scoring leaders from NHL API
+        env:
+          SEASON: ${{ steps.season.outputs.season }}
+        run: |
+          mkdir -p data
+
+          BASE="https://api-web.nhle.com/v1/skater-stats-leaders/${SEASON}/2"
+
+          echo "Fetching points leaders..."
+          curl -sf --retry 3 --retry-delay 5 \
+            -H "Accept: application/json" \
+            "${BASE}?categories=points&limit=25" \
+            -o data/leaders-points.json \
+            || echo '{"points":[]}' > data/leaders-points.json
+
+          echo "Fetching goals leaders..."
+          curl -sf --retry 3 --retry-delay 5 \
+            -H "Accept: application/json" \
+            "${BASE}?categories=goals&limit=25" \
+            -o data/leaders-goals.json \
+            || echo '{"goals":[]}' > data/leaders-goals.json
+
+          echo "Fetching assists leaders..."
+          curl -sf --retry 3 --retry-delay 5 \
+            -H "Accept: application/json" \
+            "${BASE}?categories=assists&limit=25" \
+            -o data/leaders-assists.json \
+            || echo '{"assists":[]}' > data/leaders-assists.json
+
+          # Write metadata so the frontend knows when data was last refreshed
+          echo "{\"cachedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"season\":\"${SEASON}\"}" \
+            > data/meta.json
+
+          echo "Cache files written:"
+          ls -lh data/
+
+      - name: Commit and push cached data
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/
+          # Only commit if there are actual changes
+          if git diff --staged --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "chore: update daily NHL data cache $(date -u +%Y-%m-%d)"
+            git push
+          fi

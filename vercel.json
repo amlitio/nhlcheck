@@ -1,0 +1,16 @@
+{
+  "version": 2,
+  "public": true,
+  "routes": [
+    { "src": "/data/(.*)", "dest": "/data/$1" },
+    { "src": "/(.*)",      "dest": "/$1"       }
+  ],
+  "headers": [
+    {
+      "source": "/data/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=3600, stale-while-revalidate=86400" }
+      ]
+    }
+  ]
+}

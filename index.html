@@ -21,13 +21,17 @@
 </head>
 <body class="bg-nhl-dark text-gray-200 min-h-screen">
   <div class="max-w-7xl mx-auto px-4 py-6">
-    <h1 class="text-3xl font-bold mb-6">NHL Quick Stats</h1>
+    <div class="flex items-center justify-between mb-6">
+      <h1 class="text-3xl font-bold">&#x1F3D2; NHL Quick Stats</h1>
+      <span id="cache-status" class="text-xs text-gray-500"></span>
+    </div>
 
     <!-- Tabs -->
-    <div class="flex space-x-1 mb-6 border-b border-gray-700">
-      <button class="tab-btn active px-4 py-2 text-sm font-medium rounded-t-lg" data-tab="team-stats">Team Stats</button>
-      <button class="tab-btn px-4 py-2 text-sm font-medium rounded-t-lg" data-tab="standings">Standings</button>
-      <button class="tab-btn px-4 py-2 text-sm font-medium rounded-t-lg" data-tab="scores">Today's Scores</button>
+    <div class="flex space-x-1 mb-6 border-b border-gray-700 overflow-x-auto">
+      <button class="tab-btn active px-4 py-2 text-sm font-medium rounded-t-lg whitespace-nowrap" data-tab="team-stats">Team Stats</button>
+      <button class="tab-btn px-4 py-2 text-sm font-medium rounded-t-lg whitespace-nowrap" data-tab="standings">Standings</button>
+      <button class="tab-btn px-4 py-2 text-sm font-medium rounded-t-lg whitespace-nowrap" data-tab="scores">Today's Scores</button>
+      <button class="tab-btn px-4 py-2 text-sm font-medium rounded-t-lg whitespace-nowrap" data-tab="top-scorers">&#x1F3C6; Top Scorers</button>
     </div>
 
     <!-- Team Stats Tab -->
@@ -60,6 +64,31 @@
         Loading scores...
       </div>
       <div id="scores-container"></div>
+    </div>
+
+    <!-- Top Scorers Tab -->
+    <div id="tab-top-scorers" class="tab-content hidden">
+      <div id="top-scorers-loading" class="hidden text-gray-400 flex items-center gap-2">
+        <svg class="animate-spin h-5 w-5" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+        Loading scoring leaders...
+      </div>
+      <div id="top-scorers-container"></div>
+    </div>
+  </div>
+
+  <!-- Player Profile Modal -->
+  <div id="player-modal" class="fixed inset-0 z-50 hidden overflow-y-auto">
+    <div class="flex items-start justify-center min-h-screen p-4 pt-10 sm:pt-16">
+      <div class="fixed inset-0 bg-black/75 backdrop-blur-sm" id="modal-overlay"></div>
+      <div class="relative bg-gray-800 rounded-xl max-w-2xl w-full shadow-2xl z-10 border border-gray-700 modal-panel">
+        <!-- Modal Header -->
+        <div class="flex items-center justify-between p-5 border-b border-gray-700">
+          <div id="modal-title" class="flex-1 min-w-0"></div>
+          <button id="modal-close" class="ml-4 flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full text-gray-400 hover:text-white hover:bg-gray-700 transition-colors text-xl leading-none">&times;</button>
+        </div>
+        <!-- Modal Body -->
+        <div id="modal-content" class="p-5 overflow-y-auto" style="max-height: 78vh;"></div>
+      </div>
     </div>
   </div>
 
