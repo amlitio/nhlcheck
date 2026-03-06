@@ -1,25 +1,28 @@
-// ─── Constants & DOM References ────────────────────────────────────────────────
-// All NHL API calls go through Vercel's server-side proxy (/nhl-api/* → api-web.nhle.com/v1/*)
-// This avoids CORS issues — api-web.nhle.com blocks direct browser requests from localhost.
-const API_BASE = '/nhl-api';
+// ─── API Base ─────────────────────────────────────────────────────────────────
+// All NHL calls route through our Vercel serverless proxy (api/nhl/[...path].js)
+// which forwards them server-side to api-web.nhle.com/v1 — no CORS issues.
+const API_BASE = '/api/nhl';
 
-const teamSelect        = document.getElementById('team-select');
-const statsContainer    = document.getElementById('stats-container');
-const loadingIndicator  = document.getElementById('loading-indicator');
-const standingsContainer = document.getElementById('standings-container');
-const standingsLoading  = document.getElementById('standings-loading');
-const scoresContainer   = document.getElementById('scores-container');
-const scoresLoading     = document.getElementById('scores-loading');
+// ─── DOM References ────────────────────────────────────────────────────────────
+const teamSelect          = document.getElementById('team-select');
+const statsContainer      = document.getElementById('stats-container');
+const loadingIndicator    = document.getElementById('loading-indicator');
+const standingsContainer  = document.getElementById('standings-container');
+const standingsLoading    = document.getElementById('standings-loading');
+const scoresContainer     = document.getElementById('scores-container');
+const scoresLoading       = document.getElementById('scores-loading');
 const topScorersContainer = document.getElementById('top-scorers-container');
-const topScorersLoading = document.getElementById('top-scorers-loading');
-const playerModal       = document.getElementById('player-modal');
-const modalTitle        = document.getElementById('modal-title');
-const modalContent      = document.getElementById('modal-content');
+const topScorersLoading   = document.getElementById('top-scorers-loading');
+const playerModal         = document.getElementById('player-modal');
+const modalTitle          = document.getElementById('modal-title');
+const modalContent        = document.getElementById('modal-content');
 
-// Cache so rows can access the leaders array by index on click
+// Cache so row click-handlers can look up the full player object by index
 let _leadersCache = null;
 
-// ─── Country Flags Map ─────────────────────────────────────────────────────────
+// ─── Country Flags ─────────────────────────────────────────────────────────────
+// NOTE: birthCountry is NOT included in the scoring-leaders endpoint response.
+// It IS included in the player landing endpoint, which we fetch when the modal opens.
 const COUNTRY_FLAGS = {
   'CAN': '🇨🇦', 'USA': '🇺🇸', 'SWE': '🇸🇪', 'FIN': '🇫🇮',
   'RUS': '🇷🇺', 'CZE': '🇨🇿', 'SVK': '🇸🇰', 'GER': '🇩🇪',
@@ -31,6 +34,13 @@ const COUNTRY_FLAGS = {
   'AUS': '🇦🇺', 'CHN': '🇨🇳', 'KOR': '🇰🇷', 'JPN': '🇯🇵',
 };
 
+function getFlag(code) { return COUNTRY_FLAGS[code] || ''; }
+
+const SPINNER_SVG = `<svg class="animate-spin h-8 w-8 text-blue-500" viewBox="0 0 24 24">
+  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"/>
+  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+</svg>`;
+
 // ─── Tab Switching ─────────────────────────────────────────────────────────────
 document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -39,8 +49,8 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
     document.getElementById(`tab-${btn.dataset.tab}`).classList.remove('hidden');
 
-    if (btn.dataset.tab === 'standings' && !standingsContainer.innerHTML) fetchStandings();
-    if (btn.dataset.tab === 'scores' && !scoresContainer.innerHTML) fetchScores();
+    if (btn.dataset.tab === 'standings'   && !standingsContainer.innerHTML)  fetchStandings();
+    if (btn.dataset.tab === 'scores'      && !scoresContainer.innerHTML)     fetchScores();
     if (btn.dataset.tab === 'top-scorers' && !topScorersContainer.innerHTML) fetchAndRenderTopScorers();
   });
 });
@@ -50,23 +60,14 @@ function showLoading(el) { el.classList.remove('hidden'); }
 function hideLoading(el) { el.classList.add('hidden'); }
 
 function getCurrentSeason() {
-  const now = new Date();
-  const year = now.getFullYear();
+  const now   = new Date();
+  const year  = now.getFullYear();
   const month = now.getMonth() + 1;
-  const startYear = month >= 10 ? year : year - 1;
-  return `${startYear}${startYear + 1}`;
+  const start = month >= 10 ? year : year - 1;
+  return `${start}${start + 1}`;
 }
 
-function getFlag(countryCode) {
-  return COUNTRY_FLAGS[countryCode] || '';
-}
-
-const SPINNER_SVG = `<svg class="animate-spin h-8 w-8 text-blue-500" viewBox="0 0 24 24">
-  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"/>
-  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-</svg>`;
-
-// ─── Team Dropdown ─────────────────────────────────────────────────────────────
+// ─── Team Dropdown (Team Stats tab) ───────────────────────────────────────────
 async function populateDropdown() {
   try {
     const res = await fetch(`${API_BASE}/standings/now`);
@@ -75,8 +76,8 @@ async function populateDropdown() {
 
     const teams = data.standings
       .map(t => ({
-        abbrev: t.teamAbbrev.default,
-        name: `${t.placeName.default} ${t.teamCommonName.default}`
+        abbrev: t.teamAbbrev.default,          // standings uses {default:string}
+        name:   `${t.placeName.default} ${t.teamCommonName.default}`,
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
 
@@ -84,14 +85,13 @@ async function populateDropdown() {
     teams.forEach(team => {
       if (seen.has(team.abbrev)) return;
       seen.add(team.abbrev);
-      const option = document.createElement('option');
-      option.value = team.abbrev;
-      option.textContent = team.name;
-      teamSelect.appendChild(option);
+      const opt = document.createElement('option');
+      opt.value       = team.abbrev;
+      opt.textContent = team.name;
+      teamSelect.appendChild(opt);
     });
-  } catch (error) {
-    console.error('Error fetching teams:', error);
-    statsContainer.innerHTML = `<p class="text-red-400">Error loading teams: ${error.message}</p>`;
+  } catch (err) {
+    statsContainer.innerHTML = `<p class="text-red-400">Error loading teams: ${err.message}</p>`;
   }
 }
 
@@ -110,43 +110,34 @@ async function fetchPlayerStats(playerId) {
 }
 
 async function fetchAllPlayerData(roster) {
-  const results = await Promise.all(
-    roster.map(async player => {
-      try {
-        const data = await fetchPlayerStats(player.id);
-        const isGoalie = player.positionCode === 'G';
+  const results = await Promise.all(roster.map(async player => {
+    try {
+      const data     = await fetchPlayerStats(player.id);
+      const isGoalie = player.positionCode === 'G';
 
-        let stats = null;
-        if (data.featuredStats && data.featuredStats.regularSeason) {
-          stats = data.featuredStats.regularSeason.subSeason;
-        }
-        if (!stats) {
-          const seasonEntry = (data.seasonTotals || [])
-            .filter(s => s.leagueAbbrev === 'NHL' && s.gameTypeId === 2)
-            .pop();
-          stats = seasonEntry || null;
-        }
-
-        return {
-          name: `${player.firstName.default} ${player.lastName.default}`,
-          number: player.sweaterNumber,
-          position: player.positionCode,
-          headshot: player.headshot,
-          isGoalie,
-          stats
-        };
-      } catch {
-        return null;
+      let stats = data.featuredStats?.regularSeason?.subSeason ?? null;
+      if (!stats) {
+        stats = (data.seasonTotals || [])
+          .filter(s => s.leagueAbbrev === 'NHL' && s.gameTypeId === 2)
+          .pop() ?? null;
       }
-    })
-  );
-  return results.filter(r => r && r.stats);
+
+      return {
+        name:     `${player.firstName.default} ${player.lastName.default}`,
+        number:   player.sweaterNumber,
+        position: player.positionCode,
+        headshot: player.headshot,
+        isGoalie,
+        stats,
+      };
+    } catch { return null; }
+  }));
+  return results.filter(r => r?.stats);
 }
 
 function renderSkaterTable(players) {
   const skaters = players.filter(p => !p.isGoalie);
   if (!skaters.length) return '';
-
   skaters.sort((a, b) => (b.stats.points || 0) - (a.stats.points || 0));
 
   const rows = skaters.map(p => {
@@ -198,12 +189,11 @@ function renderSkaterTable(players) {
 function renderGoalieTable(players) {
   const goalies = players.filter(p => p.isGoalie);
   if (!goalies.length) return '';
-
   goalies.sort((a, b) => (b.stats.wins || 0) - (a.stats.wins || 0));
 
   const rows = goalies.map(p => {
-    const s = p.stats;
-    const svPct = s.savePctg != null ? s.savePctg.toFixed(3) : '—';
+    const s   = p.stats;
+    const svp = s.savePctg != null ? s.savePctg.toFixed(3) : '—';
     const gaa = s.goalsAgainstAvg != null ? s.goalsAgainstAvg.toFixed(2) : '—';
     return `<tr class="border-b border-gray-700 hover:bg-gray-700/50">
       <td class="py-2 px-3 flex items-center gap-2">
@@ -214,7 +204,7 @@ function renderGoalieTable(players) {
       <td class="py-2 px-3 text-center">${s.wins || 0}</td>
       <td class="py-2 px-3 text-center">${s.losses || 0}</td>
       <td class="py-2 px-3 text-center">${s.otLosses || 0}</td>
-      <td class="py-2 px-3 text-center">${svPct}</td>
+      <td class="py-2 px-3 text-center">${svp}</td>
       <td class="py-2 px-3 text-center">${gaa}</td>
       <td class="py-2 px-3 text-center">${s.shutouts || 0}</td>
     </tr>`;
@@ -245,21 +235,18 @@ teamSelect.addEventListener('change', async () => {
   statsContainer.innerHTML = '';
   const teamAbbrev = teamSelect.value;
   if (!teamAbbrev) return;
-
   showLoading(loadingIndicator);
-
   try {
-    const roster = await fetchTeamRoster(teamAbbrev);
+    const roster     = await fetchTeamRoster(teamAbbrev);
     const playerData = await fetchAllPlayerData(roster);
-
     statsContainer.innerHTML = `
       <h2 class="text-xl font-bold mb-4">${teamSelect.options[teamSelect.selectedIndex].text}</h2>
       <div class="bg-nhl-card rounded-lg p-4">
         ${renderSkaterTable(playerData)}
         ${renderGoalieTable(playerData)}
       </div>`;
-  } catch (error) {
-    statsContainer.innerHTML = `<p class="text-red-400">Error loading roster: ${error.message}</p>`;
+  } catch (err) {
+    statsContainer.innerHTML = `<p class="text-red-400">Error loading roster: ${err.message}</p>`;
   } finally {
     hideLoading(loadingIndicator);
   }
@@ -268,28 +255,25 @@ teamSelect.addEventListener('change', async () => {
 // ─── Standings ─────────────────────────────────────────────────────────────────
 async function fetchStandings() {
   showLoading(standingsLoading);
-
   try {
     const res = await fetch(`${API_BASE}/standings/now`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
 
     const divisions = {};
-    data.standings.forEach(team => {
-      const div = team.divisionName;
-      if (!divisions[div]) divisions[div] = [];
-      divisions[div].push(team);
+    data.standings.forEach(t => {
+      const d = t.divisionName;
+      if (!divisions[d]) divisions[d] = [];
+      divisions[d].push(t);
     });
+    Object.values(divisions).forEach(arr =>
+      arr.sort((a, b) => b.points - a.points || b.regulationWins - a.regulationWins)
+    );
 
-    Object.values(divisions).forEach(teams => {
-      teams.sort((a, b) => b.points - a.points || b.regulationWins - a.regulationWins);
-    });
-
-    const divisionOrder = ['Atlantic', 'Metropolitan', 'Central', 'Pacific'];
-    const html = divisionOrder.map(divName => {
+    const divOrder = ['Atlantic', 'Metropolitan', 'Central', 'Pacific'];
+    standingsContainer.innerHTML = divOrder.map(divName => {
       const teams = divisions[divName];
       if (!teams) return '';
-
       const rows = teams.map((t, i) => `
         <tr class="border-b border-gray-700 hover:bg-gray-700/50">
           <td class="py-2 px-3">${i + 1}</td>
@@ -333,104 +317,204 @@ async function fetchStandings() {
           </div>
         </div>`;
     }).join('');
-
-    standingsContainer.innerHTML = html;
-  } catch (error) {
-    standingsContainer.innerHTML = `<p class="text-red-400">Error loading standings: ${error.message}</p>`;
+  } catch (err) {
+    standingsContainer.innerHTML = `<p class="text-red-400">Error loading standings: ${err.message}</p>`;
   } finally {
     hideLoading(standingsLoading);
   }
 }
 
-// ─── Today's Scores ────────────────────────────────────────────────────────────
+// ─── Standings Map (for predictions) ──────────────────────────────────────────
+// Returns { "EDM": { points, gamesPlayed, goalFor, goalAgainst, streakCode, streakCount, ... }, ... }
+async function fetchStandingsMap() {
+  const res = await fetch(`${API_BASE}/standings/now`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
+  const map = {};
+  (data.standings || []).forEach(t => {
+    map[t.teamAbbrev.default] = t;
+  });
+  return map;
+}
+
+// ─── Game Prediction Model ─────────────────────────────────────────────────────
+/**
+ * Predict game outcome using a simple two-factor model:
+ *   60% points-percentage  (wins vs possible points)
+ *   40% goal-differential per game  (offensive/defensive dominance)
+ * Home-ice advantage: home team gets a +5% strength multiplier.
+ *
+ * Returns { pick, confidence, homeWinPct } or null if data unavailable.
+ */
+function predictGame(homeAbbrev, awayAbbrev, standingsMap) {
+  const home = standingsMap[homeAbbrev];
+  const away = standingsMap[awayAbbrev];
+  if (!home || !away) return null;
+
+  const teamScore = t => {
+    const ptsPct  = t.points / Math.max(t.gamesPlayed * 2, 1);
+    const gdPerGP = (t.goalFor - t.goalAgainst) / Math.max(t.gamesPlayed, 1);
+    // Normalize GD: typical range is roughly -2 to +2 per game → map to 0–1
+    const gdNorm  = Math.min(1, Math.max(0, (gdPerGP + 2) / 4));
+    return ptsPct * 0.60 + gdNorm * 0.40;
+  };
+
+  const homeScore = teamScore(home) * 1.05; // home-ice advantage
+  const awayScore = teamScore(away);
+  const total     = homeScore + awayScore;
+  const homeWinPct = homeScore / total;
+
+  const pick       = homeWinPct >= 0.5 ? homeAbbrev : awayAbbrev;
+  const confidence = Math.round(Math.max(homeWinPct, 1 - homeWinPct) * 100);
+
+  // Streak bonus text
+  const pickTeam    = pick === homeAbbrev ? home : away;
+  const streakLabel = pickTeam.streakCode === 'W'
+    ? `W${pickTeam.streakCount} streak`
+    : pickTeam.streakCode === 'L'
+      ? `L${pickTeam.streakCount} streak`
+      : '';
+
+  return { pick, confidence, homeWinPct: Math.round(homeWinPct * 100), streakLabel };
+}
+
+// ─── Today's Scores + Predictions ─────────────────────────────────────────────
 async function fetchScores() {
   showLoading(scoresLoading);
-
   try {
-    const res = await fetch(`${API_BASE}/score/now`);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
+    // Fetch games and standings in parallel
+    const [scoresRes, standingsMap] = await Promise.all([
+      fetch(`${API_BASE}/score/now`).then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }),
+      fetchStandingsMap().catch(() => ({})), // predictions are optional; don't fail scores if this fails
+    ]);
 
-    if (!data.games || data.games.length === 0) {
+    if (!scoresRes.games || scoresRes.games.length === 0) {
       scoresContainer.innerHTML = `<p class="text-gray-400">No games scheduled for today.</p>`;
       return;
     }
 
-    const html = data.games.map(game => {
-      const away = game.awayTeam;
-      const home = game.homeTeam;
-      const state = game.gameState;
+    const html = scoresRes.games.map(game => {
+      const away  = game.awayTeam;
+      const home  = game.homeTeam;
+      const state = game.gameState; // FUT, PRE, LIVE, CRIT, OFF
 
-      let statusText = '';
+      let statusText  = '';
       let statusClass = 'text-gray-400';
-      if (state === 'FUT') {
-        const time = new Date(game.startTimeUTC).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-        statusText = time;
+
+      if (state === 'FUT' || state === 'PRE') {
+        statusText = new Date(game.startTimeUTC).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
       } else if (state === 'LIVE' || state === 'CRIT') {
         const period = game.periodDescriptor ? `P${game.periodDescriptor.number}` : '';
-        const clock = game.clock ? game.clock.timeRemaining : '';
-        statusText = `${period} ${clock}`;
-        statusClass = 'text-green-400 font-semibold';
+        const clock  = game.clock?.timeRemaining ?? '';
+        statusText   = `${period} ${clock}`.trim();
+        statusClass  = 'text-green-400 font-semibold animate-pulse';
       } else if (state === 'OFF') {
-        let suffix = 'Final';
-        if (game.gameOutcome && game.gameOutcome.lastPeriodType !== 'REG') {
-          suffix = `Final/${game.gameOutcome.lastPeriodType}`;
-        }
+        const suffix = game.gameOutcome?.lastPeriodType !== 'REG'
+          ? `Final/${game.gameOutcome.lastPeriodType}`
+          : 'Final';
         statusText = suffix;
       }
 
+      // Prediction badge (only shown for scheduled/future games)
+      const pred    = predictGame(home.abbrev, away.abbrev, standingsMap);
+      const predBadge = (state === 'FUT' || state === 'PRE') && pred ? `
+        <div class="mt-3 pt-3 border-t border-gray-700">
+          <div class="flex items-center justify-between">
+            <span class="text-xs text-gray-500 uppercase tracking-wide">Prediction</span>
+            <div class="flex items-center gap-2">
+              <span class="text-xs font-bold ${pred.pick === home.abbrev ? 'text-blue-300' : 'text-orange-300'}">
+                ${pred.pick}
+              </span>
+              <div class="flex items-center gap-1">
+                <div class="h-1.5 rounded-full bg-gray-700 w-16 overflow-hidden">
+                  <div class="h-full rounded-full ${pred.pick === home.abbrev ? 'bg-blue-500' : 'bg-orange-400'}"
+                       style="width:${pred.confidence}%"></div>
+                </div>
+                <span class="text-xs text-gray-400">${pred.confidence}%</span>
+              </div>
+            </div>
+          </div>
+          ${pred.streakLabel ? `<div class="text-xs text-gray-600 text-right mt-0.5">${pred.streakLabel}</div>` : ''}
+          <div class="flex justify-between text-xs text-gray-600 mt-1">
+            <span>${away.abbrev} ${100 - pred.homeWinPct}%</span>
+            <span class="text-gray-500">Home ice incl.</span>
+            <span>${home.abbrev} ${pred.homeWinPct}%</span>
+          </div>
+        </div>` : '';
+
+      const showScore = state !== 'FUT' && state !== 'PRE';
+
       return `
-        <div class="bg-nhl-card rounded-lg p-4 flex flex-col gap-3">
+        <div class="bg-nhl-card rounded-lg p-4 flex flex-col gap-3 border border-gray-700/30">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-3 flex-1">
               <img src="${away.logo}" alt="" class="w-10 h-10" onerror="this.style.display='none'">
               <span class="font-medium">${away.abbrev}</span>
             </div>
-            <span class="text-2xl font-bold w-8 text-center">${state !== 'FUT' ? (away.score ?? 0) : ''}</span>
+            <span class="text-2xl font-bold w-8 text-center tabular-nums">${showScore ? (away.score ?? 0) : ''}</span>
           </div>
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-3 flex-1">
               <img src="${home.logo}" alt="" class="w-10 h-10" onerror="this.style.display='none'">
-              <span class="font-medium">${home.abbrev}</span>
+              <span class="font-medium">${home.abbrev} <span class="text-xs text-gray-500">HOME</span></span>
             </div>
-            <span class="text-2xl font-bold w-8 text-center">${state !== 'FUT' ? (home.score ?? 0) : ''}</span>
+            <span class="text-2xl font-bold w-8 text-center tabular-nums">${showScore ? (home.score ?? 0) : ''}</span>
           </div>
           <div class="text-center text-sm ${statusClass}">${statusText}</div>
+          ${predBadge}
         </div>`;
     }).join('');
 
     scoresContainer.innerHTML = `
-      <h2 class="text-xl font-bold mb-4">Games — ${data.currentDate || 'Today'}</h2>
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-xl font-bold">Games — ${scoresRes.currentDate || 'Today'}</h2>
+        <span class="text-xs text-gray-500">Predictions for scheduled games</span>
+      </div>
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">${html}</div>`;
-  } catch (error) {
-    scoresContainer.innerHTML = `<p class="text-red-400">Error loading scores: ${error.message}</p>`;
+  } catch (err) {
+    scoresContainer.innerHTML = `<p class="text-red-400">Error loading scores: ${err.message}</p>`;
   } finally {
     hideLoading(scoresLoading);
   }
 }
 
-// ─── Scoring Leaders ───────────────────────────────────────────────────────────
-
+// ─── Top Scorers — Data Fetching ───────────────────────────────────────────────
 /**
- * Merge points/goals/assists leader arrays into one unified list.
- * The points list drives rank order; goals and assists values are overlaid by player ID.
+ * Merge the three category responses into one unified player list.
+ *
+ * IMPORTANT — API field shapes from skater-stats-leaders:
+ *   teamAbbrev  → plain string "EDM"   (NOT an object — different from standings!)
+ *   firstName   → { default: "Connor" }
+ *   lastName    → { default: "McDavid" }
+ *   position    → plain string "C"
+ *   value       → the stat value (points / goals / assists depending on endpoint)
+ *   birthCountry → NOT present in this endpoint (fetched from player landing)
  */
 function mergeLeadersData(pointsData, goalsData, assistsData) {
   const map = {};
 
+  // Points list drives ranking; overlay goals/assists from their respective lists
   (pointsData.points || []).forEach((p, i) => {
-    map[p.id] = { ...p, rank: i + 1, points: p.value || 0, goals: 0, assists: 0 };
+    map[p.id] = {
+      ...p,
+      rank:    i + 1,
+      points:  p.value || 0,
+      goals:   0,
+      assists: 0,
+    };
   });
-  (goalsData.goals || []).forEach(p => { if (map[p.id]) map[p.id].goals = p.value || 0; });
+  (goalsData.goals     || []).forEach(p => { if (map[p.id]) map[p.id].goals   = p.value || 0; });
   (assistsData.assists || []).forEach(p => { if (map[p.id]) map[p.id].assists = p.value || 0; });
 
   return Object.values(map).sort((a, b) => a.rank - b.rank);
 }
 
-async function fetchScoringLeaders(limit = 25) {
+async function fetchScoringLeaders(displayLimit = 50) {
   const season = getCurrentSeason();
+  // Fetch with a wider net (100) so all top-50 point leaders appear in the goals/assists lists
+  const fetchLimit = 100;
 
-  // 1. Try the daily-cached JSON files first (populated by GH Actions cron)
+  // 1 — Try daily-cached JSON files first (committed by GitHub Actions cron)
   try {
     const metaRes = await fetch('./data/meta.json');
     if (metaRes.ok) {
@@ -442,39 +526,39 @@ async function fetchScoringLeaders(limit = 25) {
       if (ptRes.ok) {
         const [ptData, gData, aData] = await Promise.all([ptRes.json(), gRes.json(), aRes.json()]);
         const meta = await metaRes.json();
-        // Show cache timestamp
-        const cacheStatus = document.getElementById('cache-status');
-        if (cacheStatus && meta.cachedAt) {
-          cacheStatus.textContent = `Data cached: ${new Date(meta.cachedAt).toLocaleString()}`;
-        }
-        return mergeLeadersData(ptData, gData, aData);
+        const el   = document.getElementById('cache-status');
+        if (el && meta.cachedAt) el.textContent = `Cached ${new Date(meta.cachedAt).toLocaleString()}`;
+        return mergeLeadersData(ptData, gData, aData).slice(0, displayLimit);
       }
     }
-  } catch (_) { /* cache miss — fall through to live fetch */ }
+  } catch (_) { /* cache miss — fall through to live */ }
 
-  // 2. Live fetch from NHL API (via Vercel proxy — no CORS issues)
+  // 2 — Live fetch via proxy
   const [ptRes, gRes, aRes] = await Promise.all([
-    fetch(`${API_BASE}/skater-stats-leaders/${season}/2?categories=points&limit=${limit}`),
-    fetch(`${API_BASE}/skater-stats-leaders/${season}/2?categories=goals&limit=${limit}`),
-    fetch(`${API_BASE}/skater-stats-leaders/${season}/2?categories=assists&limit=${limit}`),
+    fetch(`${API_BASE}/skater-stats-leaders/${season}/2?categories=points&limit=${fetchLimit}`),
+    fetch(`${API_BASE}/skater-stats-leaders/${season}/2?categories=goals&limit=${fetchLimit}`),
+    fetch(`${API_BASE}/skater-stats-leaders/${season}/2?categories=assists&limit=${fetchLimit}`),
   ]);
-  if (!ptRes.ok) throw new Error(`NHL API returned HTTP ${ptRes.status} for scoring leaders (season ${season})`);
+
+  if (!ptRes.ok) throw new Error(`NHL API returned HTTP ${ptRes.status} (season ${season})`);
+
   const [ptData, gData, aData] = await Promise.all([ptRes.json(), gRes.json(), aRes.json()]);
-  return mergeLeadersData(ptData, gData, aData);
+  return mergeLeadersData(ptData, gData, aData).slice(0, displayLimit);
 }
 
+// ─── Top Scorers — Rendering ───────────────────────────────────────────────────
 function renderScoringLeaders(leaders) {
   if (!leaders.length) {
-    return '<p class="text-gray-400">No scoring leaders data available. The season may not have started yet.</p>';
+    return '<p class="text-gray-400">No scoring leaders data available.</p>';
   }
 
   const rankColors = ['text-yellow-400', 'text-gray-300', 'text-amber-500'];
 
   const rows = leaders.map((p, idx) => {
-    const flag = getFlag(p.birthCountry);
-    const teamAbbrev = p.teamAbbrev?.default || '—';
-    const name = `${p.firstName?.default || ''} ${p.lastName?.default || ''}`.trim();
-    const rankClass = rankColors[p.rank - 1] || 'text-gray-500';
+    // teamAbbrev from the leaders API is a PLAIN STRING, not an object.
+    const teamAbbrev = p.teamAbbrev || '—';
+    const name       = `${p.firstName?.default || ''} ${p.lastName?.default || ''}`.trim();
+    const rankClass  = rankColors[p.rank - 1] || 'text-gray-500';
 
     return `
       <tr class="border-b border-gray-700/50 hover:bg-blue-500/10 cursor-pointer transition-colors scoring-leader-row"
@@ -491,7 +575,6 @@ function renderScoringLeaders(leaders) {
             </div>
           </div>
         </td>
-        <td class="py-3 px-4 text-center text-xl hidden sm:table-cell">${flag}</td>
         <td class="py-3 px-4 text-center text-blue-400 font-bold text-lg tabular-nums">${p.points}</td>
         <td class="py-3 px-4 text-center text-gray-200 font-medium tabular-nums">${p.goals}</td>
         <td class="py-3 px-4 text-center text-gray-200 font-medium tabular-nums">${p.assists}</td>
@@ -501,7 +584,7 @@ function renderScoringLeaders(leaders) {
   return `
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
       <h2 class="text-xl font-bold">League Scoring Leaders</h2>
-      <p class="text-xs text-gray-500">Click any player to view props &amp; predictions</p>
+      <p class="text-xs text-gray-500">Click a player for profile &amp; prop predictions</p>
     </div>
     <div class="overflow-x-auto">
       <table class="w-full text-sm bg-nhl-card rounded-xl border border-gray-700/50">
@@ -509,7 +592,6 @@ function renderScoringLeaders(leaders) {
           <tr class="border-b border-gray-600 text-gray-400 text-xs uppercase">
             <th class="py-3 px-4 text-center w-10">#</th>
             <th class="py-3 px-4 text-left">Player</th>
-            <th class="py-3 px-4 text-center hidden sm:table-cell">Country</th>
             <th class="py-3 px-4 text-center">PTS</th>
             <th class="py-3 px-4 text-center">G</th>
             <th class="py-3 px-4 text-center">A</th>
@@ -523,15 +605,15 @@ function renderScoringLeaders(leaders) {
 async function fetchAndRenderTopScorers() {
   showLoading(topScorersLoading);
   try {
-    const leaders = await fetchScoringLeaders(25);
-    _leadersCache = leaders;
+    const leaders    = await fetchScoringLeaders(50);
+    _leadersCache    = leaders;
     topScorersContainer.innerHTML = renderScoringLeaders(leaders);
 
-    // Wire up click handlers
+    // Wire up row click → modal
     topScorersContainer.querySelectorAll('.scoring-leader-row').forEach(row => {
       row.addEventListener('click', () => {
         const idx = parseInt(row.dataset.playerIdx, 10);
-        if (_leadersCache && _leadersCache[idx]) openPlayerModal(_leadersCache[idx]);
+        if (!isNaN(idx) && _leadersCache?.[idx]) openPlayerModal(_leadersCache[idx]);
       });
     });
   } catch (err) {
@@ -548,10 +630,9 @@ async function fetchPlayerGameLog(playerId) {
     const res = await fetch(`${API_BASE}/player/${playerId}/game-log/${season}/2`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-    // gameLog is sorted most-recent first by the API
-    return (data.gameLog || []).slice(0, 20);
+    return (data.gameLog || []).slice(0, 20); // most-recent first
   } catch (err) {
-    console.error('fetchPlayerGameLog error:', err);
+    console.warn('fetchPlayerGameLog:', err.message);
     return [];
   }
 }
@@ -562,23 +643,20 @@ async function fetchNextGame(teamAbbrev) {
     const res = await fetch(`${API_BASE}/club-schedule/${teamAbbrev}/week/now`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-    const now = new Date();
-    return (data.games || []).find(g => new Date(g.startTimeUTC) > now) || null;
+    const now  = new Date();
+    return (data.games || []).find(g => new Date(g.startTimeUTC) > now) ?? null;
   } catch (err) {
-    console.error('fetchNextGame error:', err);
+    console.warn('fetchNextGame:', err.message);
     return null;
   }
 }
 
-// ─── Prediction Algorithm ──────────────────────────────────────────────────────
+// ─── Prop Prediction Algorithm ────────────────────────────────────────────────
 /**
- * Calculate player prop predictions using a three-factor model:
- *   1. Season per-game average  (40% weight, or 70% if < 3 recent games)
- *   2. Recent form — last 5 games, exponentially weighted (60% / 30%)
- *   3. Head-to-head vs. next opponent — multiplicative adjustment (±0–30%)
- *
- * Returns an object keyed by prop name, each containing:
- *   { label, line, projected, direction, confidence, h2hGames }
+ * Three-factor model:
+ *   40% season per-game average (or 70% if < 3 recent games available)
+ *   60% recent form — last 5 games with exponential weights [35,25,20,12,8]%
+ *   ±30% head-to-head multiplier vs next opponent (if ≥ 2 historical games exist)
  */
 function calculateProps(seasonStats, gameLog, nextOpponentAbbrev) {
   const gp = seasonStats.gamesPlayed || 1;
@@ -590,7 +668,6 @@ function calculateProps(seasonStats, gameLog, nextOpponentAbbrev) {
     shots:   (seasonStats.shots   || 0) / gp,
   };
 
-  // Exponential weights for last 5 games (must sum to 1.0)
   const WEIGHTS = [0.35, 0.25, 0.20, 0.12, 0.08];
   const recent5 = gameLog.slice(0, 5);
   const recentW = { goals: 0, assists: 0, points: 0, shots: 0 };
@@ -603,22 +680,19 @@ function calculateProps(seasonStats, gameLog, nextOpponentAbbrev) {
     recentW.shots   += (g.shots   || g.shotsOnGoal || 0) * w;
   });
 
-  // H2H: filter game log for games against the next opponent
+  // H2H — filter historical game log for games against next opponent
   let h2hGames = [];
-  let h2hMult = { goals: 1, assists: 1, points: 1, shots: 1 };
+  const h2hMult = { goals: 1, assists: 1, points: 1, shots: 1 };
 
   if (nextOpponentAbbrev) {
     h2hGames = gameLog.filter(g => g.opponentAbbrev === nextOpponentAbbrev);
-
     if (h2hGames.length >= 2) {
-      const avg = (arr, fn) => arr.reduce((s, g) => s + fn(g), 0) / arr.length;
+      const avg   = (arr, fn) => arr.reduce((s, g) => s + fn(g), 0) / arr.length;
       const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
-
       const h2hG   = avg(h2hGames, g => g.goals   || 0);
       const h2hA   = avg(h2hGames, g => g.assists || 0);
       const h2hSOG = avg(h2hGames, g => g.shots   || g.shotsOnGoal || 0);
 
-      // Multiplier blends h2h average with season average (30% h2h influence)
       h2hMult.goals   = seasonPPG.goals   > 0 ? clamp(0.7 + 0.3 * (h2hG   / seasonPPG.goals),   0.75, 1.30) : 1;
       h2hMult.assists = seasonPPG.assists > 0 ? clamp(0.7 + 0.3 * (h2hA   / seasonPPG.assists), 0.75, 1.30) : 1;
       h2hMult.shots   = seasonPPG.shots   > 0 ? clamp(0.7 + 0.3 * (h2hSOG / seasonPPG.shots),   0.75, 1.30) : 1;
@@ -626,43 +700,31 @@ function calculateProps(seasonStats, gameLog, nextOpponentAbbrev) {
     }
   }
 
-  // Blend weights: season 40% / recent 60% (or 70/30 if sparse recent data)
   const SW = recent5.length >= 3 ? 0.40 : 0.70;
   const RW = 1 - SW;
 
-  const PROP_META = {
-    goals:   'Goals',
-    assists: 'Assists',
-    points:  'Points',
-    shots:   'Shots on Goal',
-  };
+  const LABELS = { goals: 'Goals', assists: 'Assists', points: 'Points', shots: 'Shots on Goal' };
+  const props  = {};
 
-  const props = {};
-
-  Object.keys(PROP_META).forEach(stat => {
+  Object.keys(LABELS).forEach(stat => {
     const projected = ((seasonPPG[stat] * SW) + (recentW[stat] * RW)) * h2hMult[stat];
 
-    // Line: season average rounded to nearest 0.5, minimum 0.5 when player scores at all
     let line = Math.round(seasonPPG[stat] * 2) / 2;
     if (line <= 0 && projected > 0) line = 0.5;
 
-    // Standard deviation of last 5 games for this prop
-    const vals = recent5.map(g => {
-      if (stat === 'points') return (g.goals || 0) + (g.assists || 0);
-      if (stat === 'shots')  return g.shots || g.shotsOnGoal || 0;
-      return g[stat] || 0;
-    });
+    // Confidence — based on projection/line gap and recent consistency
+    const vals   = recent5.map(g => stat === 'points' ? (g.goals || 0) + (g.assists || 0)
+                                    : stat === 'shots'  ? (g.shots || g.shotsOnGoal || 0)
+                                    : (g[stat] || 0));
     const mean   = vals.reduce((s, v) => s + v, 0) / Math.max(vals.length, 1);
     const stdDev = Math.sqrt(vals.reduce((s, v) => s + (v - mean) ** 2, 0) / Math.max(vals.length, 1));
-
-    // Confidence: magnitude of edge + consistency bonus/penalty
     const relGap = line > 0 ? Math.abs(projected - line) / line : Math.abs(projected - line);
     let conf = relGap >= 0.40 ? 82 : relGap >= 0.25 ? 70 : relGap >= 0.10 ? 58 : 51;
     if (stdDev < 0.80) conf = Math.min(92, conf + 8);
-    else if (stdDev > 2.0) conf = Math.max(42, conf - 10);
+    else if (stdDev > 2)  conf = Math.max(42, conf - 10);
 
     props[stat] = {
-      label:      PROP_META[stat],
+      label:      LABELS[stat],
       line,
       projected:  Math.round(projected * 100) / 100,
       direction:  projected >= line ? 'OVER' : 'UNDER',
@@ -676,14 +738,13 @@ function calculateProps(seasonStats, gameLog, nextOpponentAbbrev) {
 
 // ─── Player Modal ──────────────────────────────────────────────────────────────
 async function openPlayerModal(playerData) {
-  // Show modal immediately with a loading spinner while we fetch data
-  modalTitle.innerHTML = renderModalHeader(playerData);
+  modalTitle.innerHTML   = renderModalHeader(playerData);
   modalContent.innerHTML = `<div class="flex justify-center py-12">${SPINNER_SVG}</div>`;
   playerModal.classList.remove('hidden');
   document.body.style.overflow = 'hidden';
 
   try {
-    const teamAbbrev = playerData.teamAbbrev?.default;
+    const teamAbbrev = playerData.teamAbbrev; // plain string from leaders API
 
     const [gameLog, nextGame, landing] = await Promise.all([
       fetchPlayerGameLog(playerData.id),
@@ -691,27 +752,22 @@ async function openPlayerModal(playerData) {
       fetchPlayerStats(playerData.id),
     ]);
 
-    // Enrich birth country from landing data if not already on the player object
+    // birthCountry lives in the player landing, not the leaders endpoint
     if (!playerData.birthCountry && landing.birthCountry) {
       playerData = { ...playerData, birthCountry: landing.birthCountry };
       modalTitle.innerHTML = renderModalHeader(playerData);
     }
 
-    // Resolve season stats from landing
-    let seasonStats = {};
-    if (landing.featuredStats?.regularSeason?.subSeason) {
-      seasonStats = landing.featuredStats.regularSeason.subSeason;
-    } else {
+    // Season stats from landing
+    let seasonStats = landing.featuredStats?.regularSeason?.subSeason ?? null;
+    if (!seasonStats) {
       seasonStats = (landing.seasonTotals || [])
         .filter(s => s.leagueAbbrev === 'NHL' && s.gameTypeId === 2)
-        .pop() || {};
+        .pop() ?? {};
     }
 
-    // Determine the abbreviation for the next opponent
     const nextOpponent = nextGame
-      ? (nextGame.homeTeam?.abbrev === teamAbbrev
-          ? nextGame.awayTeam?.abbrev
-          : nextGame.homeTeam?.abbrev)
+      ? (nextGame.homeTeam?.abbrev === teamAbbrev ? nextGame.awayTeam?.abbrev : nextGame.homeTeam?.abbrev)
       : null;
 
     const props = calculateProps(seasonStats, gameLog, nextOpponent);
@@ -723,9 +779,9 @@ async function openPlayerModal(playerData) {
 }
 
 function renderModalHeader(player) {
-  const flag = getFlag(player.birthCountry);
-  const teamAbbrev = player.teamAbbrev?.default || '';
-  const name = `${player.firstName?.default || ''} ${player.lastName?.default || ''}`.trim();
+  const flag       = getFlag(player.birthCountry);
+  const teamAbbrev = player.teamAbbrev || '';    // plain string
+  const name       = `${player.firstName?.default || ''} ${player.lastName?.default || ''}`.trim();
 
   return `
     <div class="flex items-center gap-4 min-w-0">
@@ -746,56 +802,46 @@ function renderModalHeader(player) {
 function renderModalBody(player, gameLog, nextGame, props, nextOpponent, seasonStats) {
   const gp = seasonStats.gamesPlayed || 0;
 
-  // ── Season Stats Summary ──────────────────────────────────────────────────────
+  // Season summary
   const seasonSummaryHTML = gp ? `
     <div class="grid grid-cols-4 gap-2 mb-5">
-      ${[
-        ['GP',  gp],
-        ['G',   seasonStats.goals   || 0],
-        ['A',   seasonStats.assists || 0],
-        ['PTS', seasonStats.points  || 0],
-      ].map(([label, val]) => `
-        <div class="bg-gray-900 rounded-lg p-2 text-center border border-gray-700/40">
-          <div class="text-xl font-bold text-white tabular-nums">${val}</div>
-          <div class="text-xs text-gray-500 uppercase tracking-wide">${label}</div>
-        </div>`).join('')}
+      ${[['GP', gp], ['G', seasonStats.goals || 0], ['A', seasonStats.assists || 0], ['PTS', seasonStats.points || 0]]
+        .map(([label, val]) => `
+          <div class="bg-gray-900 rounded-lg p-2 text-center border border-gray-700/40">
+            <div class="text-xl font-bold text-white tabular-nums">${val}</div>
+            <div class="text-xs text-gray-500 uppercase tracking-wide">${label}</div>
+          </div>`).join('')}
     </div>` : '';
 
-  // ── Next Game Banner ──────────────────────────────────────────────────────────
+  // Next game banner
   const nextGameHTML = nextGame ? (() => {
-    const awayA = nextGame.awayTeam?.abbrev || '';
-    const homeA = nextGame.homeTeam?.abbrev || '';
-    const dateStr = new Date(nextGame.startTimeUTC).toLocaleDateString([], {
-      weekday: 'short', month: 'short', day: 'numeric'
-    });
+    const dateStr = new Date(nextGame.startTimeUTC).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
     return `
       <div class="mb-5 p-3 bg-gray-900/80 rounded-lg border border-gray-700/50 flex flex-wrap items-center gap-3">
         <span class="text-xs text-blue-400 font-semibold uppercase tracking-wide">Next Game</span>
         <div class="flex items-center gap-2 ml-auto">
           <img src="${nextGame.awayTeam?.logo || ''}" alt="" class="w-5 h-5" onerror="this.style.display='none'">
-          <span class="font-medium text-sm">${awayA} @ ${homeA}</span>
+          <span class="font-medium text-sm">${nextGame.awayTeam?.abbrev ?? ''} @ ${nextGame.homeTeam?.abbrev ?? ''}</span>
           <img src="${nextGame.homeTeam?.logo || ''}" alt="" class="w-5 h-5" onerror="this.style.display='none'">
           <span class="text-xs text-gray-400 ml-1">${dateStr}</span>
         </div>
       </div>`;
   })() : '';
 
-  // ── Prop Predictions ──────────────────────────────────────────────────────────
+  // Prop prediction cards
   const propsHTML = `
     <div class="mb-5">
       <div class="flex items-center gap-2 mb-3">
         <h3 class="text-sm font-semibold text-gray-400 uppercase tracking-wide">Prop Predictions</h3>
         ${nextOpponent ? `<span class="text-xs bg-blue-500/20 text-blue-300 rounded px-1.5 py-0.5 border border-blue-500/30">vs ${nextOpponent}</span>` : ''}
-        <span class="ml-auto text-xs text-gray-600 italic">Entertainment only</span>
+        <span class="ml-auto text-xs text-gray-600 italic">For entertainment only</span>
       </div>
       <div class="grid grid-cols-2 gap-2">
         ${Object.values(props).map(p => {
-          const isOver   = p.direction === 'OVER';
-          const dirClass = isOver ? 'text-green-400' : 'text-red-400';
+          const isOver    = p.direction === 'OVER';
+          const dirClass  = isOver ? 'text-green-400' : 'text-red-400';
           const borderCls = isOver ? 'border-green-500/25' : 'border-red-500/25';
-          const barColor = p.confidence >= 75 ? 'bg-green-500'
-                         : p.confidence >= 60 ? 'bg-yellow-500'
-                         : 'bg-gray-500';
+          const barColor  = p.confidence >= 75 ? 'bg-green-500' : p.confidence >= 60 ? 'bg-yellow-500' : 'bg-gray-500';
           return `
             <div class="bg-gray-900 rounded-lg p-3 border ${borderCls}">
               <div class="flex justify-between items-center mb-1">
@@ -804,9 +850,7 @@ function renderModalBody(player, gameLog, nextGame, props, nextOpponent, seasonS
               </div>
               <div class="flex justify-between items-end mb-2.5">
                 <span class="text-2xl font-bold text-white tabular-nums">${p.line}</span>
-                <span class="text-xs text-gray-500">
-                  Proj: <span class="${dirClass} font-semibold">${p.projected}</span>
-                </span>
+                <span class="text-xs text-gray-500">Proj: <span class="${dirClass} font-semibold">${p.projected}</span></span>
               </div>
               <div class="flex justify-between text-xs text-gray-600 mb-1">
                 <span>Confidence</span><span>${p.confidence}%</span>
@@ -819,12 +863,12 @@ function renderModalBody(player, gameLog, nextGame, props, nextOpponent, seasonS
       </div>
     </div>`;
 
-  // ── Head-to-Head ─────────────────────────────────────────────────────────────
-  const h2hGames = props.goals?.h2hGames || [];
-  const h2hHTML = nextOpponent && h2hGames.length >= 2 ? `
+  // H2H stats
+  const h2hGames  = props.goals?.h2hGames || [];
+  const h2hHTML   = nextOpponent && h2hGames.length >= 2 ? `
     <div class="mb-5">
       <h3 class="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-2">
-        H2H vs ${nextOpponent} <span class="text-gray-600 font-normal normal-case">(${h2hGames.length} games in game log)</span>
+        H2H vs ${nextOpponent} <span class="text-gray-600 font-normal normal-case">(${h2hGames.length} games in log)</span>
       </h3>
       <div class="grid grid-cols-3 gap-2">
         ${[
@@ -839,8 +883,8 @@ function renderModalBody(player, gameLog, nextGame, props, nextOpponent, seasonS
       </div>
     </div>` : '';
 
-  // ── Recent Form ───────────────────────────────────────────────────────────────
-  const recent5 = gameLog.slice(0, 5);
+  // Recent form table
+  const recent5    = gameLog.slice(0, 5);
   const recentHTML = recent5.length ? `
     <div>
       <h3 class="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-2">
@@ -860,8 +904,8 @@ function renderModalBody(player, gameLog, nextGame, props, nextOpponent, seasonS
           </thead>
           <tbody>
             ${recent5.map(g => {
-              const pts = (g.goals || 0) + (g.assists || 0);
-              const isHome = g.homeRoadFlag === 'H';
+              const pts      = (g.goals || 0) + (g.assists || 0);
+              const isHome   = g.homeRoadFlag === 'H';
               const ptsClass = pts > 1 ? 'text-blue-400 font-bold' : pts === 1 ? 'text-blue-300 font-semibold' : 'text-gray-500';
               return `
                 <tr class="border-b border-gray-700/30 hover:bg-gray-700/20 transition-colors">

@@ -1,11 +1,5 @@
 {
   "version": 2,
-  "rewrites": [
-    {
-      "source": "/nhl-api/:path*",
-      "destination": "https://api-web.nhle.com/v1/:path*"
-    }
-  ],
   "headers": [
     {
       "source": "/data/(.*)",
