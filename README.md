@@ -35,9 +35,11 @@ Daily leaders cache is accepted only for the current season and within 36 hours;
 - `main.js`: tab rendering and modal integration; request generation guard prevents stale modal responses.
 - `player-data.js`: validated player context acquisition through existing proxy routes.
 - `prediction-model.js`: pure CommonJS/browser-compatible projection functions.
-- `api/nhl/[...path].js`: existing NHL proxy. `api/odds.js` reads optional server-side `ODDS_API_KEY`; player projections require no key. `api/scrape-stats.js` supplies existing team metrics.
+- `api/nhl.js`: existing NHL proxy. `api/odds.js` reads optional server-side `ODDS_API_KEY`; player projections require no key. `api/scrape-stats.js` supplies existing team metrics.
 - `data/`: cached leader responses refreshed by the daily workflow. `general_index.md` describes all tracked files.
 
 No API endpoints were added or modified in this change. Today's Scores requests the viewer's local calendar day from ESPN; game scores and matchups should be checked against the NHL feed. Its separate team model displays a qualitative lean without a probability percentage. Keep `.env*` and `.vercel/` local. The lockfile updates the existing transitive Undici dependency to resolve the audit finding; no new dependency was introduced.
 
 The Top Scorers list rejects the April 2026 cache after the season rollover. It combines current points, goals, and assists leader lists; because each category is limited to 50 players, a missing count is inferred from verified points minus the other count only when possible. Otherwise the table shows an em dash rather than a false zero. The status label shows whether the list came from a current-season cache or live NHL data.
+
+Vercel rewrites `/api/nhl/:path*` to the validated `api/nhl.js` function; this is required for Team Stats and player profiles on Vercel. Direct NHL endpoints such as `/v1/roster/FLA/current` return live data, but a site deployment without this rewrite returns a Vercel 404 before the proxy runs.

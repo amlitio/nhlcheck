@@ -119,10 +119,12 @@ async function fetchAllPlayerData(roster) {
       const data     = await fetchPlayerStats(player.id);
       const isGoalie = player.positionCode === 'G';
 
-      let stats = data.featuredStats?.regularSeason?.subSeason ?? null;
+      const season = Number(getCurrentSeason());
+      let stats = Number(data.featuredStats?.season) === season
+        ? data.featuredStats?.regularSeason?.subSeason ?? null : null;
       if (!stats) {
         stats = (data.seasonTotals || [])
-          .filter(s => s.leagueAbbrev === 'NHL' && s.gameTypeId === 2)
+          .filter(s => s.leagueAbbrev === 'NHL' && s.gameTypeId === 2 && Number(s.season) === season)
           .pop() ?? null;
       }
 
