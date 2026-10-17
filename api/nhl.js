@@ -1,7 +1,7 @@
 /**
  * Vercel Serverless Function — NHL API Proxy
  *
- * Routes: /api/nhl/**
+ * Routes: /api/nhl/** via vercel.json rewrite
  * Proxies all requests server-side to https://api-web.nhle.com/v1/**
  *
  * Why: api-web.nhle.com does not send CORS headers for browser requests
@@ -10,13 +10,21 @@
  */
 module.exports = async function handler(req, res) {
   // req.query.path is the catch-all segment array, e.g. ['standings', 'now']
-  const { path = [] } = req.query;
+  if (req.method && req.method !== 'GET') return res.status(405).json({ success: false, error: { code: 'METHOD_NOT_ALLOWED', message: 'GET required.' } });
+  const { path = '' } = req.query || {};
   const pathStr = Array.isArray(path) ? path.join('/') : String(path);
+  if (!pathStr || pathStr.length > 200 || !pathStr.split('/').every(part => /^[A-Za-z0-9-]+$/.test(part)))
+    return res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid NHL API path.' } });
 
   // Forward all query params except the internal 'path' param
   const forwarded = new URLSearchParams();
-  for (const [k, v] of Object.entries(req.query)) {
-    if (k !== 'path') forwarded.append(k, v);
+  for (const [k, v] of Object.entries(req.query || {})) {
+    if (k === 'path') continue;
+    if (!/^[A-Za-z0-9_-]{1,50}$/.test(k)) return res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid query parameter.' } });
+    for (const item of (Array.isArray(v) ? v : [v])) {
+      if (typeof item !== 'string' || item.length > 200) return res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid query value.' } });
+      forwarded.append(k, item);
+    }
   }
   const qs = forwarded.toString();
   const targetUrl = `https://api-web.nhle.com/v1/${pathStr}${qs ? '?' + qs : ''}`;
@@ -37,6 +45,6 @@ module.exports = async function handler(req, res) {
     res.setHeader('Cache-Control', 's-maxage=60, stale-while-revalidate=300');
     res.status(upstream.status).end(body);
   } catch (err) {
-    res.status(500).json({ error: `Proxy error: ${err.message}`, target: targetUrl });
+    res.status(502).json({ success: false, error: { code: 'UPSTREAM_UNAVAILABLE', message: 'NHL data is temporarily unavailable.' } });
   }
 };
