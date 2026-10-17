@@ -61,14 +61,14 @@ module.exports = async function handler(req, res) {
       ]);
       const active = new Set([...(roster.forwards || []), ...(roster.defensemen || [])].map(p => p.id));
       teamStats[team] = (data.skaters || []).filter(p => active.has(p.playerId) && Number.isInteger(p.playerId) && p.gamesPlayed > 0)
-        .sort((a, b) => (b.goals / b.gamesPlayed) - (a.goals / a.gamesPlayed)).slice(0, 10);
+        .sort((a, b) => (b.goals / b.gamesPlayed) - (a.goals / a.gamesPlayed)).slice(0, 6);
     } catch { teamStats[team] = []; }
   });
   const players = [...new Set(clubs.flatMap(team => teamStats[team].map(p => p.playerId)))];
   const recentByPlayer = {};
   const opponentByPlayer = {};
   const playerTeam = new Map(clubs.flatMap(team => teamStats[team].map(p => [p.playerId, team])));
-  await mapLimit(players, 6, async id => {
+  await mapLimit(players, 12, async id => {
     try {
       const log = await nhl(`player/${id}/game-log/${seasons.get(playerTeam.get(id))}/${gameTypes.get(playerTeam.get(id))}`);
       const past = (Array.isArray(log.gameLog) ? log.gameLog : []).filter(g => g.gameDate < date);

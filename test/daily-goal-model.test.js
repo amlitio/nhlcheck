@@ -15,7 +15,7 @@ test('ranks at least three eligible skaters with bounded model percentages', () 
   assert.equal(result.gameId, 1);
   assert.equal(result.picks.length, 3);
   assert.equal(result.picks[0].playerId, 1);
-  assert.ok(result.picks.every(p => Number.isInteger(p.estimatedGoalPct) && p.estimatedGoalPct >= 0 && p.estimatedGoalPct <= 95));
+  assert.ok(result.picks.every(p => Number.isFinite(p.estimatedGoalPct) && p.estimatedGoalPct >= 0 && p.estimatedGoalPct <= 95));
   assert.match(result.picks[0].reason, /model estimate/);
 });
 

@@ -50,7 +50,7 @@
       const shrunk = (hits + 20 * seasonProbability) / (against.length + 20);
       probability = 0.85 * probability + 0.15 * shrunk;
     }
-    const pct = Math.round(Math.min(0.95, Math.max(0, probability)) * 100);
+    const pct = Math.round(Math.min(0.95, Math.max(0, probability)) * 1000) / 10;
     const reason = `${goals} goals in ${games} season games; season scoring rate shrunk toward a prior rate.` +
       (recent.length ? ` Scored in ${recent.filter(game => game.goals > 0).length} of ${recent.length} recent games.` : '') +
       (against.length ? ` Scored in ${against.filter(game => game.goals > 0).length} of ${against.length} logged games versus ${opponent}.` : '') +
