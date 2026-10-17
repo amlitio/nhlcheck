@@ -82,3 +82,19 @@ test('scores request uses viewer calendar date and no invented percentages', asy
   assert.match(element('scores-container').innerHTML, /COL/);
   assert.doesNotMatch(element('scores-container').innerHTML, /Confidence|homeWinPct/);
 });
+
+test('leader merge derives counts only from verified point totals', () => {
+  const { context } = app();
+  const players = context.mergeLeadersData(
+    { points: [{ id: 1, value: 101 }, { id: 2, value: 100 }, { id: 3, value: 99 }] },
+    { goals: [{ id: 2, value: 38 }] },
+    { assists: [{ id: 1, value: 72 }] },
+  );
+  assert.equal(players[0].goals, 29);
+  assert.equal(players[1].assists, 62);
+  assert.equal(players[2].goals, null);
+  assert.equal(players[2].assists, null);
+  const html = context.renderScoringLeaders(players);
+  assert.match(html, /29/);
+  assert.match(html, /—/);
+});

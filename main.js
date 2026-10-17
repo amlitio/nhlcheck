@@ -595,14 +595,23 @@ function mergeLeadersData(pointsData, goalsData, assistsData) {
     map[p.id] = {
       ...p,
       rank:    i + 1,
-      points:  p.value || 0,
-      goals:   0,
-      assists: 0,
+      points:  Number.isSafeInteger(p.value) && p.value >= 0 ? p.value : null,
+      goals:   null,
+      assists: null,
     };
   });
-  (goalsData.goals     || []).forEach(p => { if (map[p.id]) map[p.id].goals   = p.value || 0; });
-  (assistsData.assists || []).forEach(p => { if (map[p.id]) map[p.id].assists = p.value || 0; });
+  (goalsData.goals     || []).forEach(p => { if (map[p.id]) map[p.id].goals   = Number.isSafeInteger(p.value) && p.value >= 0 ? p.value : null; });
+  (assistsData.assists || []).forEach(p => { if (map[p.id]) map[p.id].assists = Number.isSafeInteger(p.value) && p.value >= 0 ? p.value : null; });
 
+  // Category endpoints return only their top 50. Derive a missing count only
+  // when the other count and total points are both verified.
+  for (const player of Object.values(map)) {
+    if (player.points === null) continue;
+    if (player.goals === null && player.assists !== null && player.assists <= player.points)
+      player.goals = player.points - player.assists;
+    if (player.assists === null && player.goals !== null && player.goals <= player.points)
+      player.assists = player.points - player.goals;
+  }
   return Object.values(map).sort((a, b) => a.rank - b.rank);
 }
 
@@ -642,6 +651,8 @@ async function fetchScoringLeaders(displayLimit = 50) {
   if (!ptRes.ok) throw new Error(`NHL API returned HTTP ${ptRes.status} for scoring leaders`);
 
   const [ptData, gData, aData] = await Promise.all([ptRes.json(), gRes.json(), aRes.json()]);
+  const el = document.getElementById('cache-status');
+  if (el) el.textContent = `Live NHL data · ${getCurrentSeason()}`;
   return mergeLeadersData(ptData, gData, aData).slice(0, displayLimit);
 }
 
@@ -674,9 +685,9 @@ function renderScoringLeaders(leaders) {
             </div>
           </div>
         </td>
-        <td class="py-3 px-4 text-center text-blue-400 font-bold text-lg tabular-nums">${p.points}</td>
-        <td class="py-3 px-4 text-center text-gray-200 font-medium tabular-nums">${p.goals}</td>
-        <td class="py-3 px-4 text-center text-gray-200 font-medium tabular-nums">${p.assists}</td>
+        <td class="py-3 px-4 text-center text-blue-400 font-bold text-lg tabular-nums">${displayStat(p.points)}</td>
+        <td class="py-3 px-4 text-center text-gray-200 font-medium tabular-nums">${displayStat(p.goals)}</td>
+        <td class="py-3 px-4 text-center text-gray-200 font-medium tabular-nums">${displayStat(p.assists)}</td>
       </tr>`;
   }).join('');
 

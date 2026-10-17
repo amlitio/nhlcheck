@@ -39,3 +39,5 @@ Daily leaders cache is accepted only for the current season and within 36 hours;
 - `data/`: cached leader responses refreshed by the daily workflow. `general_index.md` describes all tracked files.
 
 No API endpoints were added or modified in this change. Today's Scores requests the viewer's local calendar day from ESPN; game scores and matchups should be checked against the NHL feed. Its separate team model displays a qualitative lean without a probability percentage. Keep `.env*` and `.vercel/` local. The lockfile updates the existing transitive Undici dependency to resolve the audit finding; no new dependency was introduced.
+
+The Top Scorers list rejects the April 2026 cache after the season rollover. It combines current points, goals, and assists leader lists; because each category is limited to 50 players, a missing count is inferred from verified points minus the other count only when possible. Otherwise the table shows an em dash rather than a false zero. The status label shows whether the list came from a current-season cache or live NHL data.
