@@ -625,6 +625,9 @@ async function fetchScoringLeaders(displayLimit = 50) {
   try {
     const metaRes = await fetch('./data/meta.json');
     if (metaRes.ok) {
+      const meta = await metaRes.json();
+      const cacheAge = Date.now() - Date.parse(meta.cachedAt);
+      if (String(meta.season) !== getCurrentSeason() || !Number.isFinite(cacheAge) || cacheAge < 0 || cacheAge > 36 * 60 * 60 * 1000) throw new Error('Stale cache');
       const [ptRes, gRes, aRes] = await Promise.all([
         fetch('./data/leaders-points.json'),
         fetch('./data/leaders-goals.json'),
@@ -632,7 +635,6 @@ async function fetchScoringLeaders(displayLimit = 50) {
       ]);
       if (ptRes.ok) {
         const [ptData, gData, aData] = await Promise.all([ptRes.json(), gRes.json(), aRes.json()]);
-        const meta = await metaRes.json();
         const el   = document.getElementById('cache-status');
         if (el && meta.cachedAt) el.textContent = `Cached ${new Date(meta.cachedAt).toLocaleString()}`;
         return mergeLeadersData(ptData, gData, aData).slice(0, displayLimit);
@@ -730,159 +732,38 @@ async function fetchAndRenderTopScorers() {
   }
 }
 
-// ─── Player Game Log ───────────────────────────────────────────────────────────
-async function fetchPlayerGameLog(playerId) {
-  const season = getCurrentSeason();
-  try {
-    const res = await fetch(`${API_BASE}/player/${playerId}/game-log/${season}/2`);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    return (data.gameLog || []).slice(0, 20); // most-recent first
-  } catch (err) {
-    console.warn('fetchPlayerGameLog:', err.message);
-    return [];
-  }
-}
-
-// ─── Next Scheduled Game ───────────────────────────────────────────────────────
-async function fetchNextGame(teamAbbrev) {
-  try {
-    const res = await fetch(`${API_BASE}/club-schedule/${teamAbbrev}/week/now`);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    const now  = new Date();
-    return (data.games || []).find(g => new Date(g.startTimeUTC) > now) ?? null;
-  } catch (err) {
-    console.warn('fetchNextGame:', err.message);
-    return null;
-  }
-}
-
-// ─── Prop Prediction Algorithm ────────────────────────────────────────────────
-/**
- * Three-factor model:
- *   40% season per-game average (or 70% if < 3 recent games available)
- *   60% recent form — last 5 games with exponential weights [35,25,20,12,8]%
- *   ±30% head-to-head multiplier vs next opponent (if ≥ 2 historical games exist)
- */
-function calculateProps(seasonStats, gameLog, nextOpponentAbbrev) {
-  const gp = seasonStats.gamesPlayed || 1;
-
-  const seasonPPG = {
-    goals:   (seasonStats.goals   || 0) / gp,
-    assists: (seasonStats.assists || 0) / gp,
-    points:  (seasonStats.points  || 0) / gp,
-    shots:   (seasonStats.shots   || 0) / gp,
-  };
-
-  const WEIGHTS = [0.35, 0.25, 0.20, 0.12, 0.08];
-  const recent5 = gameLog.slice(0, 5);
-  const recentW = { goals: 0, assists: 0, points: 0, shots: 0 };
-
-  recent5.forEach((g, i) => {
-    const w = WEIGHTS[i] || 0;
-    recentW.goals   += (g.goals   || 0) * w;
-    recentW.assists += (g.assists || 0) * w;
-    recentW.points  += ((g.goals || 0) + (g.assists || 0)) * w;
-    recentW.shots   += (g.shots   || g.shotsOnGoal || 0) * w;
-  });
-
-  // H2H — filter historical game log for games against next opponent
-  let h2hGames = [];
-  const h2hMult = { goals: 1, assists: 1, points: 1, shots: 1 };
-
-  if (nextOpponentAbbrev) {
-    h2hGames = gameLog.filter(g => g.opponentAbbrev === nextOpponentAbbrev);
-    if (h2hGames.length >= 2) {
-      const avg   = (arr, fn) => arr.reduce((s, g) => s + fn(g), 0) / arr.length;
-      const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
-      const h2hG   = avg(h2hGames, g => g.goals   || 0);
-      const h2hA   = avg(h2hGames, g => g.assists || 0);
-      const h2hSOG = avg(h2hGames, g => g.shots   || g.shotsOnGoal || 0);
-
-      h2hMult.goals   = seasonPPG.goals   > 0 ? clamp(0.7 + 0.3 * (h2hG   / seasonPPG.goals),   0.75, 1.30) : 1;
-      h2hMult.assists = seasonPPG.assists > 0 ? clamp(0.7 + 0.3 * (h2hA   / seasonPPG.assists), 0.75, 1.30) : 1;
-      h2hMult.shots   = seasonPPG.shots   > 0 ? clamp(0.7 + 0.3 * (h2hSOG / seasonPPG.shots),   0.75, 1.30) : 1;
-      h2hMult.points  = (h2hMult.goals + h2hMult.assists) / 2;
-    }
-  }
-
-  const SW = recent5.length >= 3 ? 0.40 : 0.70;
-  const RW = 1 - SW;
-
-  const LABELS = { goals: 'Goals', assists: 'Assists', points: 'Points', shots: 'Shots on Goal' };
-  const props  = {};
-
-  Object.keys(LABELS).forEach(stat => {
-    const projected = ((seasonPPG[stat] * SW) + (recentW[stat] * RW)) * h2hMult[stat];
-
-    let line = Math.round(seasonPPG[stat] * 2) / 2;
-    if (line <= 0 && projected > 0) line = 0.5;
-
-    // Confidence — based on projection/line gap and recent consistency
-    const vals   = recent5.map(g => stat === 'points' ? (g.goals || 0) + (g.assists || 0)
-                                    : stat === 'shots'  ? (g.shots || g.shotsOnGoal || 0)
-                                    : (g[stat] || 0));
-    const mean   = vals.reduce((s, v) => s + v, 0) / Math.max(vals.length, 1);
-    const stdDev = Math.sqrt(vals.reduce((s, v) => s + (v - mean) ** 2, 0) / Math.max(vals.length, 1));
-    const relGap = line > 0 ? Math.abs(projected - line) / line : Math.abs(projected - line);
-    let conf = relGap >= 0.40 ? 82 : relGap >= 0.25 ? 70 : relGap >= 0.10 ? 58 : 51;
-    if (stdDev < 0.80) conf = Math.min(92, conf + 8);
-    else if (stdDev > 2)  conf = Math.max(42, conf - 10);
-
-    props[stat] = {
-      label:      LABELS[stat],
-      line,
-      projected:  Math.round(projected * 100) / 100,
-      direction:  projected >= line ? 'OVER' : 'UNDER',
-      confidence: Math.round(conf),
-      h2hGames,
-    };
-  });
-
-  return props;
-}
-
 // ─── Player Modal ──────────────────────────────────────────────────────────────
+// A generation counter prevents a slower previous request replacing a new player.
+let modalRequest = 0;
 async function openPlayerModal(playerData) {
-  modalTitle.innerHTML   = renderModalHeader(playerData);
+  const request = ++modalRequest;
+  modalTitle.innerHTML = renderModalHeader(playerData);
   modalContent.innerHTML = `<div class="flex justify-center py-12">${SPINNER_SVG}</div>`;
   playerModal.classList.remove('hidden');
   document.body.style.overflow = 'hidden';
-
   try {
-    const teamAbbrev = playerData.teamAbbrev; // plain string from leaders API
-
-    const [gameLog, nextGame, landing] = await Promise.all([
-      fetchPlayerGameLog(playerData.id),
-      fetchNextGame(teamAbbrev),
-      fetchPlayerStats(playerData.id),
-    ]);
-
-    // birthCountry lives in the player landing, not the leaders endpoint
-    if (!playerData.birthCountry && landing.birthCountry) {
-      playerData = { ...playerData, birthCountry: landing.birthCountry };
-      modalTitle.innerHTML = renderModalHeader(playerData);
-    }
-
-    // Season stats from landing
-    let seasonStats = landing.featuredStats?.regularSeason?.subSeason ?? null;
-    if (!seasonStats) {
-      seasonStats = (landing.seasonTotals || [])
-        .filter(s => s.leagueAbbrev === 'NHL' && s.gameTypeId === 2)
-        .pop() ?? {};
-    }
-
-    const nextOpponent = nextGame
-      ? (nextGame.homeTeam?.abbrev === teamAbbrev ? nextGame.awayTeam?.abbrev : nextGame.homeTeam?.abbrev)
-      : null;
-
-    const props = calculateProps(seasonStats, gameLog, nextOpponent);
-    modalContent.innerHTML = renderModalBody(playerData, gameLog, nextGame, props, nextOpponent, seasonStats);
-
-  } catch (err) {
-    modalContent.innerHTML = `<p class="text-red-400 p-4">Error loading player data: ${err.message}</p>`;
+    const context = await NHLPlayerData.loadPlayerContext(playerData.id, playerData.teamAbbrev);
+    if (request !== modalRequest) return;
+    const { gameLog, currentGameLog, nextGame, nextOpponent, seasonStats, landing } = context;
+    playerData = { ...playerData, teamAbbrev: context.teamAbbrev,
+      birthCountry: landing?.birthCountry ?? playerData.birthCountry };
+    modalTitle.innerHTML = renderModalHeader(playerData);
+    const props = NHLPlayerModel.calculateProps(seasonStats, gameLog, nextOpponent, {
+      asOf: new Date(context.fetchedAt), recentLog: currentGameLog ?? [],
+    });
+    modalContent.innerHTML = renderModalBody(playerData, currentGameLog ?? [], nextGame,
+      props, nextOpponent, seasonStats ?? {}, context);
+  } catch (_) {
+    if (request === modalRequest) modalContent.textContent = 'Player data is unavailable. Please try again.';
   }
+}
+
+function escapeHTML(value) {
+  return String(value ?? '').replace(/[&<>"']/g, char =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
+}
+function displayStat(value) {
+  return Number.isFinite(value) ? String(value) : '—';
 }
 
 function renderModalHeader(player) {
@@ -892,27 +773,27 @@ function renderModalHeader(player) {
 
   return `
     <div class="flex items-center gap-4 min-w-0">
-      <img src="${player.headshot || ''}" alt=""
+      <img src="${escapeHTML(player.headshot || '')}" alt=""
            class="w-14 h-14 rounded-full border-2 border-gray-600 object-cover bg-gray-700 flex-shrink-0"
            onerror="this.style.display='none'">
       <div class="min-w-0">
         <div class="font-bold text-white text-lg leading-tight">
-          ${name} <span class="text-2xl align-middle">${flag}</span>
+          ${escapeHTML(name)} <span class="text-2xl align-middle">${flag}</span>
         </div>
         <div class="text-sm text-gray-400 mt-0.5">
-          ${teamAbbrev}${player.position ? ' &middot; ' + player.position : ''}
+          ${escapeHTML(teamAbbrev)}${player.position ? ' &middot; ' + escapeHTML(player.position) : ''}
         </div>
       </div>
     </div>`;
 }
 
-function renderModalBody(player, gameLog, nextGame, props, nextOpponent, seasonStats) {
+function renderModalBody(player, gameLog, nextGame, props, nextOpponent, seasonStats, context = {}) {
   const gp = seasonStats.gamesPlayed || 0;
 
   // Season summary
   const seasonSummaryHTML = gp ? `
     <div class="grid grid-cols-4 gap-2 mb-5">
-      ${[['GP', gp], ['G', seasonStats.goals || 0], ['A', seasonStats.assists || 0], ['PTS', seasonStats.points || 0]]
+      ${[['GP', gp], ['G', displayStat(seasonStats.goals)], ['A', displayStat(seasonStats.assists)], ['PTS', displayStat(seasonStats.points)]]
         .map(([label, val]) => `
           <div class="bg-gray-900 rounded-lg p-2 text-center border border-gray-700/40">
             <div class="text-xl font-bold text-white tabular-nums">${val}</div>
@@ -927,71 +808,48 @@ function renderModalBody(player, gameLog, nextGame, props, nextOpponent, seasonS
       <div class="mb-5 p-3 bg-gray-900/80 rounded-lg border border-gray-700/50 flex flex-wrap items-center gap-3">
         <span class="text-xs text-blue-400 font-semibold uppercase tracking-wide">Next Game</span>
         <div class="flex items-center gap-2 ml-auto">
-          <img src="${nextGame.awayTeam?.logo || ''}" alt="" class="w-5 h-5" onerror="this.style.display='none'">
-          <span class="font-medium text-sm">${nextGame.awayTeam?.abbrev ?? ''} @ ${nextGame.homeTeam?.abbrev ?? ''}</span>
-          <img src="${nextGame.homeTeam?.logo || ''}" alt="" class="w-5 h-5" onerror="this.style.display='none'">
+          <img src="${escapeHTML(nextGame.awayTeam?.logo || '')}" alt="" class="w-5 h-5" onerror="this.style.display='none'">
+          <span class="font-medium text-sm">${escapeHTML(nextGame.awayTeam?.abbrev ?? '')} @ ${escapeHTML(nextGame.homeTeam?.abbrev ?? '')}</span>
+          <img src="${escapeHTML(nextGame.homeTeam?.logo || '')}" alt="" class="w-5 h-5" onerror="this.style.display='none'">
           <span class="text-xs text-gray-400 ml-1">${dateStr}</span>
         </div>
       </div>`;
   })() : '';
 
-  // Prop prediction cards
+  // Percentages are observed frequencies, never uncalibrated win probabilities.
+  const rate = value => Number.isFinite(value) ? value.toFixed(2) : '—';
+  const frequency = sample => sample?.games > 0 && Number.isFinite(sample.hitRate)
+    ? `${(sample.hitRate * 100).toFixed(1)}% (${sample.games} games)` : 'Unavailable (0 games)';
   const propsHTML = `
-    <div class="mb-5">
-      <div class="flex items-center gap-2 mb-3">
-        <h3 class="text-sm font-semibold text-gray-400 uppercase tracking-wide">Prop Predictions</h3>
-        ${nextOpponent ? `<span class="text-xs bg-blue-500/20 text-blue-300 rounded px-1.5 py-0.5 border border-blue-500/30">vs ${nextOpponent}</span>` : ''}
-        <span class="ml-auto text-xs text-gray-600 italic">For entertainment only</span>
+    <section class="mb-5">
+      <h3 class="text-sm font-semibold text-gray-300 mb-2">Player projections ${nextOpponent ? `vs ${escapeHTML(nextOpponent)}` : ''}</h3>
+      <p class="text-xs text-gray-400 mb-3">Weighted per-game estimates, not betting lines or scoring probabilities. Historical 1+ rates describe observed games only.</p>
+      ${!nextGame ? '<p class="text-amber-300 text-sm mb-3">No verified upcoming matchup. Estimates below show general form only; opponent weighting is omitted.</p>' : ''}
+      ${(context.warnings || []).map(w => `<p class="text-amber-300 text-xs mb-2">${escapeHTML(w)}</p>`).join('')}
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      ${Object.values(props).map(p => `
+        <div class="bg-gray-900 rounded-lg p-3 border border-gray-700">
+          <h4 class="font-semibold">${escapeHTML(p.label)}</h4>
+          <div class="text-2xl font-bold text-blue-300 my-2">${rate(p.projected)} <span class="text-xs text-gray-400">projected / game</span></div>
+          <dl class="text-xs text-gray-300 space-y-2">
+            <div>Season average: ${rate(p.seasonRate)}</div>
+            <div>Shrinkage baseline: ${rate(p.baselineRate)} (${p.baselineSource === 'season' ? 'season' : p.baselineSource === 'observed-history' ? 'available current-season log' : 'unavailable'})</div>
+            <div>Recent average: ${rate(p.recent.rate)} (${p.recent.games} valid games)</div>
+            <div>Recent 1+ rate: ${frequency(p.recent)}</div>
+            <div>Active 1+ streak: ${p.recent.streak == null ? 'Unavailable' : `${p.recent.streak} games`}</div>
+            <div>Recent lift vs baseline: ${p.recent.uplift == null ? 'Unavailable' : `${p.recent.uplift >= 0 ? '+' : ''}${rate(p.recent.uplift)} / game`}</div>
+            <div>Opponent 1+ rate: ${frequency(p.opponent)}</div>
+            <div>Opponent average: ${rate(p.opponent.rate)}; shrunk: ${rate(p.opponent.shrunkRate)}</div>
+            <div class="text-gray-400">Effective weights — season ${Math.round((p.weights.season || 0)*100)}%, recent ${Math.round((p.weights.recent || 0)*100)}%, opponent ${Math.round((p.weights.opponent || 0)*100)}%</div>
+          </dl>
+        </div>`).join('')}
       </div>
-      <div class="grid grid-cols-2 gap-2">
-        ${Object.values(props).map(p => {
-          const isOver    = p.direction === 'OVER';
-          const dirClass  = isOver ? 'text-green-400' : 'text-red-400';
-          const borderCls = isOver ? 'border-green-500/25' : 'border-red-500/25';
-          const barColor  = p.confidence >= 75 ? 'bg-green-500' : p.confidence >= 60 ? 'bg-yellow-500' : 'bg-gray-500';
-          return `
-            <div class="bg-gray-900 rounded-lg p-3 border ${borderCls}">
-              <div class="flex justify-between items-center mb-1">
-                <span class="text-xs text-gray-400 font-semibold uppercase tracking-wide">${p.label}</span>
-                <span class="text-xs font-bold ${dirClass}">${p.direction}</span>
-              </div>
-              <div class="flex justify-between items-end mb-2.5">
-                <span class="text-2xl font-bold text-white tabular-nums">${p.line}</span>
-                <span class="text-xs text-gray-500">Proj: <span class="${dirClass} font-semibold">${p.projected}</span></span>
-              </div>
-              <div class="flex justify-between text-xs text-gray-600 mb-1">
-                <span>Confidence</span><span>${p.confidence}%</span>
-              </div>
-              <div class="w-full bg-gray-700 rounded-full h-1.5">
-                <div class="${barColor} rounded-full h-1.5 confidence-bar" style="width:${p.confidence}%"></div>
-              </div>
-            </div>`;
-        }).join('')}
-      </div>
-    </div>`;
-
-  // H2H stats
-  const h2hGames  = props.goals?.h2hGames || [];
-  const h2hHTML   = nextOpponent && h2hGames.length >= 2 ? `
-    <div class="mb-5">
-      <h3 class="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-2">
-        H2H vs ${nextOpponent} <span class="text-gray-600 font-normal normal-case">(${h2hGames.length} games in log)</span>
-      </h3>
-      <div class="grid grid-cols-3 gap-2">
-        ${[
-          ['Goals/gm',  (h2hGames.reduce((s, g) => s + (g.goals   || 0), 0) / h2hGames.length).toFixed(1)],
-          ['Assists/gm', (h2hGames.reduce((s, g) => s + (g.assists || 0), 0) / h2hGames.length).toFixed(1)],
-          ['PTS/gm',    (h2hGames.reduce((s, g) => s + (g.goals || 0) + (g.assists || 0), 0) / h2hGames.length).toFixed(1)],
-        ].map(([label, val]) => `
-          <div class="bg-gray-900 rounded-lg p-2 text-center border border-gray-700/40">
-            <div class="text-lg font-bold text-blue-400 tabular-nums">${val}</div>
-            <div class="text-xs text-gray-500">${label}</div>
-          </div>`).join('')}
-      </div>
-    </div>` : '';
+      <p class="text-xs text-gray-400 mt-3">Recent form uses the latest five current-season regular-season games. Opponent history spans the current and previous regular season, excluding today's UTC date and future dates. Small samples shrink toward the baseline using 5 prior games for recent form and 10 for opponent history. Weights are heuristic and require backtesting before predictive use.</p>
+      <p class="text-xs text-gray-500 mt-2">Fetched: ${escapeHTML(context.fetchedAt || 'Unavailable')} · Season: ${escapeHTML(context.season || 'Unavailable')}</p>
+    </section>`;
 
   // Recent form table
-  const recent5    = gameLog.slice(0, 5);
+  const recent5    = NHLPlayerModel.normalizeGames(gameLog, { asOf: new Date(context.fetchedAt || Date.now()) }).slice(0, 5);
   const recentHTML = recent5.length ? `
     <div>
       <h3 class="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-2">
@@ -1011,17 +869,17 @@ function renderModalBody(player, gameLog, nextGame, props, nextOpponent, seasonS
           </thead>
           <tbody>
             ${recent5.map(g => {
-              const pts      = (g.goals || 0) + (g.assists || 0);
+              const pts      = g.points;
               const isHome   = g.homeRoadFlag === 'H';
               const ptsClass = pts > 1 ? 'text-blue-400 font-bold' : pts === 1 ? 'text-blue-300 font-semibold' : 'text-gray-500';
               return `
                 <tr class="border-b border-gray-700/30 hover:bg-gray-700/20 transition-colors">
-                  <td class="py-2 px-3 text-gray-400 text-xs whitespace-nowrap">${g.gameDate || '—'}</td>
-                  <td class="py-2 px-3 text-center text-xs">${isHome ? 'vs' : '@'}&nbsp;${g.opponentAbbrev || '—'}</td>
-                  <td class="py-2 px-3 text-center tabular-nums">${g.goals   || 0}</td>
-                  <td class="py-2 px-3 text-center tabular-nums">${g.assists || 0}</td>
-                  <td class="py-2 px-3 text-center tabular-nums ${ptsClass}">${pts}</td>
-                  <td class="py-2 px-3 text-center tabular-nums">${g.shots || g.shotsOnGoal || 0}</td>
+                  <td class="py-2 px-3 text-gray-400 text-xs whitespace-nowrap">${escapeHTML(g.gameDate || '—')}</td>
+                  <td class="py-2 px-3 text-center text-xs">${isHome ? 'vs' : '@'}&nbsp;${escapeHTML(g.opponentAbbrev || '—')}</td>
+                  <td class="py-2 px-3 text-center tabular-nums">${displayStat(g.goals)}</td>
+                  <td class="py-2 px-3 text-center tabular-nums">${displayStat(g.assists)}</td>
+                  <td class="py-2 px-3 text-center tabular-nums ${ptsClass}">${displayStat(pts)}</td>
+                  <td class="py-2 px-3 text-center tabular-nums">${displayStat(g.shots)}</td>
                 </tr>`;
             }).join('')}
           </tbody>
@@ -1029,11 +887,12 @@ function renderModalBody(player, gameLog, nextGame, props, nextOpponent, seasonS
       </div>
     </div>` : '<p class="text-gray-500 text-sm">No recent game data available.</p>';
 
-  return seasonSummaryHTML + nextGameHTML + propsHTML + h2hHTML + recentHTML;
+  return seasonSummaryHTML + nextGameHTML + propsHTML + recentHTML;
 }
 
 // ─── Modal Controls ────────────────────────────────────────────────────────────
 function closeModal() {
+  modalRequest++;
   playerModal.classList.add('hidden');
   document.body.style.overflow = '';
 }
