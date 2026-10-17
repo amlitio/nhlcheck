@@ -33,3 +33,7 @@ Generated dependency/build folders are excluded. Update this map when file purpo
 | `test/player-data.test.js` | Mocks NHL responses to verify season/team selection, schedule sorting, and partial outages. |
 | `test/player-ui.test.js` | Checks modal rendering, escaping, missing evidence, and asynchronous request races. |
 | `test/nhl-proxy.test.js` | Verifies the Vercel NHL rewrite contract, roster response, and proxy error handling. |
+| `api/daily-goal-picks.js` | Returns roster-verified current-day goal scorer estimates for upcoming NHL games. |
+| `daily-goal-model.js` | Pure ranking and shrunk goal-scoring percentage estimates with short reasoning. |
+| `test/daily-goal-picks-api.test.js` | Checks endpoint validation, completed-game behavior, and upstream error handling. |
+| `test/daily-goal-model.test.js` | Checks ranking, percentage bounds, missing data, and date cutoffs. |

@@ -452,16 +452,23 @@ async function fetchScores() {
   try {
     const now = new Date();
     const localDate = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
-    const [boardRes, standingsMap, oddsMap] = await Promise.all([
+    const [boardRes, standingsMap, oddsMap, scorerData] = await Promise.all([
       fetch(`https://site.api.espn.com/apis/site/v2/sports/hockey/nhl/scoreboard?dates=${localDate}`).then(r => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
       }),
       fetchStandingsMap().catch(() => ({})),
       fetchOdds(),
+      fetch(`/api/daily-goal-picks?date=${localDate.slice(0,4)}-${localDate.slice(4,6)}-${localDate.slice(6,8)}`)
+        .then(r => r.ok ? r.json() : null).catch(() => null),
     ]);
 
     const events      = boardRes.events ?? [];
+    // ESPN and NHL assign different IDs to the same game; match the scheduled teams.
+    const nhlCode = code => ({ LA: 'LAK', SJ: 'SJS', TB: 'TBL', NJ: 'NJD' })[code] || code;
+    const scorerGames = new Map((Array.isArray(scorerData?.games) ? scorerData.games : [])
+      .filter(game => game.awayTeam && game.homeTeam)
+      .map(game => [`${game.awayTeam}_${game.homeTeam}`, game]));
     const displayDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
     if (!events.length) {
@@ -521,6 +528,19 @@ async function fetchScores() {
           }
         }
 
+        const scorerGame = scorerGames.get(`${nhlCode(awayTeam.abbreviation)}_${nhlCode(homeTeam.abbreviation)}`);
+        const scorerPicks = state === 'pre' && Array.isArray(scorerGame?.picks)
+          ? scorerGame.picks.filter(p => Number.isFinite(p.estimatedGoalPct)).slice(0, 3) : [];
+        const scorerHTML = state === 'pre' ? `
+          <div class="mt-3 pt-3 border-t border-gray-700">
+            <h3 class="text-xs font-semibold uppercase text-blue-300 mb-2">Best goal scorers today</h3>
+            ${scorerPicks.length >= 3 ? scorerPicks.map(p => `
+              <div class="py-2 border-b border-gray-700/40 last:border-0">
+                <div class="flex justify-between gap-2 text-sm"><span>${escapeHTML(p.name)} <span class="text-gray-500">${escapeHTML(p.team)}</span></span><strong class="text-blue-300">${p.estimatedGoalPct.toFixed(1)}%</strong></div>
+                <p class="text-xs text-gray-400 mt-1">${escapeHTML(p.reason)}</p>
+              </div>`).join('') : '<p class="text-xs text-gray-400">Goal scorer estimates are unavailable for this matchup.</p>'}
+            <p class="text-[10px] text-gray-500 mt-2">Model estimates of 1+ goals, not guarantees or sportsbook odds. Based on available pregame stats.</p>
+          </div>` : '';
         const showScore = state !== 'pre';
 
         // Live sportsbook odds from The Odds API (pre-game only)
@@ -556,7 +576,7 @@ async function fetchScores() {
               <span class="text-2xl font-bold w-8 text-center tabular-nums">${showScore ? (homeComp.score ?? 0) : ''}</span>
             </div>
             <div class="text-center text-sm ${statusClass}">${statusText}</div>
-            ${predBadge}${oddsBadge}
+            ${predBadge}${scorerHTML}${oddsBadge}
           </div>`;
       } catch (cardErr) {
         console.warn('Error rendering game card:', cardErr);
