@@ -43,3 +43,22 @@ test('hides upstream failure details', async () => {
     assert.doesNotMatch(JSON.stringify(res.body), /private upstream detail/);
   } finally { global.fetch = original; }
 });
+
+test('includes playoff games and requests playoff club stats', async () => {
+  const original = global.fetch;
+  const urls = [];
+  global.fetch = async url => {
+    urls.push(String(url));
+    if (String(url).includes('/score/')) return { ok: true, json: async () => ({ games: [{ id: 5, gameType: 3, gameState: 'FUT', season: 20262027,
+      startTimeUTC: new Date(Date.now() + 86400000).toISOString(), awayTeam: { abbrev: 'FLA' }, homeTeam: { abbrev: 'BOS' } }] }) };
+    if (String(url).includes('/club-stats/')) return { ok: true, json: async () => ({ skaters: [] }) };
+    return { ok: true, json: async () => ({ forwards: [], defensemen: [] }) };
+  };
+  try {
+    const res = response();
+    await handler({ method: 'GET', query: { date: today() } }, res);
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.games.length, 1);
+    assert.ok(urls.some(url => url.includes('/club-stats/FLA/20262027/3')));
+  } finally { global.fetch = original; }
+});

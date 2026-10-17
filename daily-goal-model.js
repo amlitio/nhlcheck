@@ -51,7 +51,7 @@
       probability = 0.85 * probability + 0.15 * shrunk;
     }
     const pct = Math.round(Math.min(0.95, Math.max(0, probability)) * 100);
-    const reason = `${goals} goals in ${games} season games; season scoring rate shrunk toward the league baseline.` +
+    const reason = `${goals} goals in ${games} season games; season scoring rate shrunk toward a prior rate.` +
       (recent.length ? ` Scored in ${recent.filter(game => game.goals > 0).length} of ${recent.length} recent games.` : '') +
       (against.length ? ` Scored in ${against.filter(game => game.goals > 0).length} of ${against.length} logged games versus ${opponent}.` : '') +
       ' Percentage is a model estimate, not a guaranteed outcome.';

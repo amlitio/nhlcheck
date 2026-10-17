@@ -465,6 +465,7 @@ async function fetchScores() {
 
     const events      = boardRes.events ?? [];
     // ESPN and NHL assign different IDs to the same game; match the scheduled teams.
+    const nhlCode = code => ({ LA: 'LAK', SJ: 'SJS', TB: 'TBL', NJ: 'NJD' })[code] || code;
     const scorerGames = new Map((Array.isArray(scorerData?.games) ? scorerData.games : [])
       .filter(game => game.awayTeam && game.homeTeam)
       .map(game => [`${game.awayTeam}_${game.homeTeam}`, game]));
@@ -527,7 +528,7 @@ async function fetchScores() {
           }
         }
 
-        const scorerGame = scorerGames.get(`${awayTeam.abbreviation}_${homeTeam.abbreviation}`);
+        const scorerGame = scorerGames.get(`${nhlCode(awayTeam.abbreviation)}_${nhlCode(homeTeam.abbreviation)}`);
         const scorerPicks = state === 'pre' && Array.isArray(scorerGame?.picks)
           ? scorerGame.picks.filter(p => Number.isFinite(p.estimatedGoalPct)).slice(0, 3) : [];
         const scorerHTML = state === 'pre' ? `

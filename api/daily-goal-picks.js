@@ -44,19 +44,20 @@ module.exports = async function handler(req, res) {
   try { schedule = await nhl(`score/${date}`); }
   catch { return error(res, 502, 'UPSTREAM_UNAVAILABLE', 'NHL schedule is temporarily unavailable.'); }
   if (!Array.isArray(schedule.games)) return error(res, 502, 'UPSTREAM_UNAVAILABLE', 'NHL schedule is temporarily unavailable.');
-  const games = schedule.games.filter(g => g && g.gameType === 2).map(g => ({
+  const games = schedule.games.filter(g => g && [2, 3].includes(g.gameType)).map(g => ({
     id: g.id, gameState: g.gameState, startTimeUTC: g.startTimeUTC,
-    awayTeam: g.awayTeam, homeTeam: g.homeTeam, season: g.season,
+    awayTeam: g.awayTeam, homeTeam: g.homeTeam, season: g.season, gameType: g.gameType,
   }));
   const pending = games.filter(g => ['FUT', 'PRE'].includes(g.gameState));
   if (!pending.length) return res.status(200).json({ date, games: games.map(g => ({ id: g.id, awayTeam: g.awayTeam?.abbrev, homeTeam: g.homeTeam?.abbrev, state: g.gameState, picks: [], reason: 'Game already started or finished.' })) });
   const clubs = [...new Set(pending.flatMap(g => [g.awayTeam?.abbrev, g.homeTeam?.abbrev]).filter(Boolean))];
   const seasons = new Map(pending.flatMap(g => [[g.awayTeam?.abbrev, g.season], [g.homeTeam?.abbrev, g.season]]));
+  const gameTypes = new Map(pending.flatMap(g => [[g.awayTeam?.abbrev, g.gameType], [g.homeTeam?.abbrev, g.gameType]]));
   const teamStats = {};
   await mapLimit(clubs, 4, async team => {
     try {
       const [data, roster] = await Promise.all([
-        nhl(`club-stats/${team}/${seasons.get(team)}/2`), nhl(`roster/${team}/current`),
+        nhl(`club-stats/${team}/${seasons.get(team)}/${gameTypes.get(team)}`), nhl(`roster/${team}/current`),
       ]);
       const active = new Set([...(roster.forwards || []), ...(roster.defensemen || [])].map(p => p.id));
       teamStats[team] = (data.skaters || []).filter(p => active.has(p.playerId) && Number.isInteger(p.playerId) && p.gamesPlayed > 0)
@@ -69,7 +70,7 @@ module.exports = async function handler(req, res) {
   const playerTeam = new Map(clubs.flatMap(team => teamStats[team].map(p => [p.playerId, team])));
   await mapLimit(players, 6, async id => {
     try {
-      const log = await nhl(`player/${id}/game-log/${seasons.get(playerTeam.get(id))}/2`);
+      const log = await nhl(`player/${id}/game-log/${seasons.get(playerTeam.get(id))}/${gameTypes.get(playerTeam.get(id))}`);
       const past = (Array.isArray(log.gameLog) ? log.gameLog : []).filter(g => g.gameDate < date);
       recentByPlayer[id] = past;
       const opponent = pending.find(g => [g.awayTeam?.abbrev, g.homeTeam?.abbrev].includes(playerTeam.get(id)));
