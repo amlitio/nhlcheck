@@ -448,8 +448,10 @@ function fmtOdds(n) {
 async function fetchScores() {
   showLoading(scoresLoading);
   try {
+    const now = new Date();
+    const localDate = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
     const [boardRes, standingsMap, oddsMap] = await Promise.all([
-      fetch('https://site.api.espn.com/apis/site/v2/sports/hockey/nhl/scoreboard').then(r => {
+      fetch(`https://site.api.espn.com/apis/site/v2/sports/hockey/nhl/scoreboard?dates=${localDate}`).then(r => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
       }),
@@ -458,7 +460,7 @@ async function fetchScores() {
     ]);
 
     const events      = boardRes.events ?? [];
-    const displayDate = boardRes.day?.date ?? 'Today';
+    const displayDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
     if (!events.length) {
       scoresContainer.innerHTML = `<p class="text-gray-400">No games scheduled for today.</p>`;
@@ -505,26 +507,14 @@ async function fetchScores() {
             predBadge = `
               <div class="mt-3 pt-3 border-t border-gray-700">
                 <div class="flex items-center justify-between">
-                  <span class="text-xs text-gray-500 uppercase tracking-wide">Prediction</span>
+                  <span class="text-xs text-gray-500 uppercase tracking-wide">Model lean</span>
                   <div class="flex items-center gap-2">
                     <span class="text-xs font-bold ${pred.pick === homeTeam.abbreviation ? 'text-blue-300' : 'text-orange-300'}">
                       ${pred.pick}
                     </span>
-                    <div class="flex items-center gap-1">
-                      <div class="h-1.5 rounded-full bg-gray-700 w-16 overflow-hidden">
-                        <div class="h-full rounded-full ${pred.pick === homeTeam.abbreviation ? 'bg-blue-500' : 'bg-orange-400'}"
-                             style="width:${pred.confidence}%"></div>
-                      </div>
-                      <span class="text-xs text-gray-400">${pred.confidence}%</span>
-                    </div>
                   </div>
                 </div>
                 ${pred.streakLabel ? `<div class="text-xs text-gray-600 text-right mt-0.5">${pred.streakLabel}</div>` : ''}
-                <div class="flex justify-between text-xs text-gray-600 mt-1">
-                  <span>${awayTeam.abbreviation} ${100 - pred.homeWinPct}%</span>
-                  <span class="text-gray-500">Home ice incl.</span>
-                  <span>${homeTeam.abbreviation} ${pred.homeWinPct}%</span>
-                </div>
               </div>`;
           }
         }
@@ -575,7 +565,7 @@ async function fetchScores() {
     scoresContainer.innerHTML = `
       <div class="flex items-center justify-between mb-4">
         <h2 class="text-xl font-bold">Games — ${displayDate}</h2>
-        <span class="text-xs text-gray-500">Predictions for scheduled games</span>
+        <span class="text-xs text-gray-500">Schedule and model leans</span>
       </div>
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">${cards}</div>`;
   } catch (err) {

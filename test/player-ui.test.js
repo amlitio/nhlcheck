@@ -64,3 +64,21 @@ test('slow previous modal requests cannot overwrite the newest player or a close
   pending[2](data); await third;
   assert.equal(element('modal-content').innerHTML, before);
 });
+
+test('scores request uses viewer calendar date and no invented percentages', async () => {
+  const { context, element } = app();
+  const calls = [];
+  context.fetch = async url => {
+    calls.push(url);
+    if (String(url).includes('scoreboard')) return { ok: true, json: async () => ({ events: [{ competitions: [{ competitors: [
+      { homeAway: 'home', team: { abbreviation: 'COL' }, score: '5' },
+      { homeAway: 'away', team: { abbreviation: 'PIT' }, score: '2' },
+    ] }], status: { type: { state: 'post', shortDetail: 'Final' } } }] }) };
+    return { ok: true, json: async () => ({ children: [] }) };
+  };
+  await context.fetchScores();
+  assert.match(calls.find(url => String(url).includes('scoreboard')), /dates=\d{8}/);
+  assert.match(element('scores-container').innerHTML, /PIT/);
+  assert.match(element('scores-container').innerHTML, /COL/);
+  assert.doesNotMatch(element('scores-container').innerHTML, /Confidence|homeWinPct/);
+});
