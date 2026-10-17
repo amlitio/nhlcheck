@@ -98,3 +98,21 @@ test('leader merge derives counts only from verified point totals', () => {
   assert.match(html, /29/);
   assert.match(html, /—/);
 });
+
+test('pregame cards show three goal scorer estimates and escape explanations', async () => {
+  const { context, element } = app();
+  context.fetch = async url => {
+    if (String(url).includes('scoreboard')) return { ok: true, json: async () => ({ events: [{ id: 123, date: '2026-10-17T20:00Z', competitions: [{ competitors: [
+      { homeAway: 'home', team: { abbreviation: 'COL' } },
+      { homeAway: 'away', team: { abbreviation: 'PIT' } },
+    ] }], status: { type: { state: 'pre', detail: '1 PM ET' } } }] }) };
+    if (String(url).includes('daily-goal-picks')) return { ok: true, json: async () => ({ games: [{ id: 2026020001, awayTeam: 'PIT', homeTeam: 'COL', picks: [1,2,3].map(n => ({ playerId:n, name:'Player '+n, team:'COL', estimatedGoalPct:20+n, reason:'Strong shots <script>' })) }] }) };
+    return { ok: true, json: async () => ({ children: [] }) };
+  };
+  await context.fetchScores();
+  const html = element('scores-container').innerHTML;
+  assert.match(html, /Best goal scorers today/);
+  assert.equal((html.match(/Strong shots/g) || []).length, 3);
+  assert.match(html, /23\.0%/);
+  assert.doesNotMatch(html, /<script>/);
+});
