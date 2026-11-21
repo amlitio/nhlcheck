@@ -39,7 +39,7 @@
     <div id="tab-goal-replay" class="tab-content hidden">
       <div id="goal-replay-root" class="bg-nhl-card rounded-lg p-4 space-y-4">
         <h2 class="text-xl font-semibold">Last 3 Games · Goal Replay</h2>
-        <p class="text-sm text-gray-400">Choose a game day to see goals from each scheduled team's last three completed games. Coordinates show goal-event positions, not puck paths.</p>
+        <p class="text-sm text-gray-400">Choose a game day to see goals from each scheduled team's last three completed games. Recorded NHL EDGE puck paths are shown when tracking frames are available; otherwise goal-event locations are shown.</p>
         <div class="flex flex-wrap gap-2 items-center">
           <input id="goal-replay-date" type="date" class="bg-gray-900 border border-gray-600 rounded px-3 py-2">
           <button id="goal-replay-load" class="bg-blue-600 text-white rounded px-4 py-2">Load games</button>
@@ -118,6 +118,6 @@
   <script src="prediction-model.js"></script>
   <script src="player-data.js"></script>
   <script src="main.js"></script>
-  <script src="goal-replay.js"></script>
+  <script src="goal-replay.js?v=ddb920cd-2"></script>
 </body>
 </html>
