@@ -103,7 +103,8 @@
       if (state.games.length) await selectGame();
     } catch (err) { status.textContent = 'Could not load replay: ' + err.message; }
   }
-  dateInput.value = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year:'numeric', month:'2-digit', day:'2-digit' }).format(new Date());
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', year:'numeric', month:'2-digit', day:'2-digit' }).formatToParts(new Date()).map(p => [p.type, p.value]));
+  dateInput.value = parts.year + '-' + parts.month + '-' + parts.day;
   refresh.addEventListener('click', load);
   gameSelect.addEventListener('change', selectGame);
   prev.addEventListener('click', () => { stop(); state.index = Math.max(0, state.index - 1); draw(); });
