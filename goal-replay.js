@@ -21,8 +21,8 @@
   const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const day = d => d.toISOString().slice(0, 10);
   const offsetDay = (date, offset) => { const d = new Date(date + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + offset); return day(d); };
-  const code = team => team?.abbrev || team?.triCode || team?.abbreviation || '';
-  const finished = game => ['OFF', 'FINAL'].includes(game.gameState) || game.gameState === 'FINAL';
+  const code = team => { const value = team?.abbrev || team?.triCode || team?.abbreviation || ''; return typeof value === 'string' ? value : (value?.default || value?.en || ''); };
+  const finished = game => ['OFF', 'FINAL'].includes(game.gameState) || ['OFF', 'FINAL'].includes(game.gameStatus);
   const gameTeams = game => [code(game.awayTeam), code(game.homeTeam)];
   async function json(path) {
     const res = await fetch(api + path);
@@ -154,7 +154,7 @@
         opt.textContent = g.gameDate + ' · ' + gameTeams(g).join(' @ ');
         gameSelect.appendChild(opt);
       }
-      status.textContent = state.games.length ? state.games.length + ' unique historical games for ' + teams.size + ' teams (up to 3 per team)' : 'No completed games found in the previous 35 days.' + (failures ? ' (' + failures + ' daily requests failed)' : '');
+      status.textContent = state.games.length ? state.games.length + ' unique historical games for ' + teams.size + ' teams (up to 3 per team)' : 'No completed games found; checked ' + days.length + ' dates for ' + [...teams].join(', ') + ', received ' + unique.size + ' matching completed games.' + (failures ? ' (' + failures + ' requests failed)' : '');
       if (state.games.length) await selectGame();
     } catch (err) { status.textContent = 'Could not load replay: ' + err.message; }
   }
