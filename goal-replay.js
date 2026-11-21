@@ -126,35 +126,44 @@
       const todayGames = score.games || [];
       const teams = new Set(todayGames.flatMap(gameTeams).filter(Boolean));
       if (!teams.size) { status.textContent = 'No NHL games scheduled for this date.'; return; }
-      // Historical NHL /schedule/{date} is not a dependable archive.
-      // Query the authoritative date-specific score endpoint for each day.
-      // Limit concurrency to avoid overwhelming the upstream API.
+      // Use each club's season schedule, not the date score archive.
+      // The NHL club-schedule-season endpoint returns completed games for the team.
+      const year = Number(date.slice(0, 4));
+      const seasonStart = Number(date.slice(5, 7)) >= 7 ? year : year - 1;
+      const season = String(seasonStart) + String(seasonStart + 1);
+      const results = await Promise.allSettled([...teams].map(async team => ({
+        team, data: await json('/club-schedule-season/' + encodeURIComponent(team) + '/' + season)
+      })));
       const unique = new Map();
-      let failures = 0;
-      const days = Array.from({ length: 35 }, (_, i) => offsetDay(date, -i - 1));
-      for (let start = 0; start < days.length; start += 5) {
-        const batch = await Promise.allSettled(days.slice(start, start + 5).map(d => json('/score/' + d)));
-        for (const result of batch) {
-          if (result.status !== 'fulfilled') { failures++; continue; }
-          for (const g of (result.value.games || [])) {
-            if (g.gameDate < date && finished(g) && gameTeams(g).some(t => teams.has(t)))
-              unique.set(g.id, g);
-          }
+      const errors = [];
+      const missing = [];
+      for (let i = 0; i < results.length; i++) {
+        const result = results[i], team = [...teams][i];
+        if (result.status !== 'fulfilled') {
+          errors.push(team + ': ' + result.reason.message);
+          continue;
         }
-        // Stop early once each scheduled team has three completed games.
-        if ([...teams].every(team => [...unique.values()].filter(g => gameTeams(g).includes(team)).length >= 3)) break;
+        const schedule = result.value.data;
+        const candidates = (schedule.games || []).filter(g => {
+          const gameDate = g.gameDate || g.startTimeUTC?.slice(0,10) || '';
+          return gameDate < date && finished(g) && gameTeams(g).includes(team);
+        }).sort((a,b) => (b.gameDate || '').localeCompare(a.gameDate || ''));
+        if (!candidates.length) missing.push(team);
+        for (const g of candidates.slice(0, 3)) unique.set(g.id, g);
       }
-      const history = [...unique.values()].sort((a,b) => b.gameDate.localeCompare(a.gameDate));
-      const chosen = new Map();
-      for (const team of teams) for (const game of history.filter(g => gameTeams(g).includes(team)).slice(0,3)) chosen.set(game.id, game);
-      state.games = [...chosen.values()].sort((a,b) => b.gameDate.localeCompare(a.gameDate));
+      state.games = [...unique.values()].sort((a,b) => (b.gameDate || '').localeCompare(a.gameDate || ''));
+      if (!state.games.length) {
+        status.textContent = 'No historical games loaded. ' +
+          (errors.length ? 'API errors: ' + errors.join('; ') : 'No completed games matched for: ' + missing.join(', ')) +
+          '. Season ' + season + '.';
+      }
       for (const g of state.games) {
         const opt = document.createElement('option');
         opt.value = String(g.id);
         opt.textContent = g.gameDate + ' · ' + gameTeams(g).join(' @ ');
         gameSelect.appendChild(opt);
       }
-      status.textContent = state.games.length ? state.games.length + ' unique historical games for ' + teams.size + ' teams (up to 3 per team)' : 'No completed games found; checked ' + days.length + ' dates for ' + [...teams].join(', ') + ', received ' + unique.size + ' matching completed games.' + (failures ? ' (' + failures + ' requests failed)' : '');
+      if (state.games.length) status.textContent = state.games.length + ' historical games for ' + teams.size + ' scheduled teams (up to 3 per team).' + (errors.length ? ' API errors: ' + errors.join('; ') : '');
       if (state.games.length) await selectGame();
     } catch (err) { status.textContent = 'Could not load replay: ' + err.message; }
   }
