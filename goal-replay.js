@@ -68,7 +68,7 @@
     const goal = state.goals[state.index];
     if (goal) loadTracking(goal, state.request);
   }
-  function reset() { stop(); state.goals = []; state.frames = []; state.frameIndex = 0; state.index = 0; rink.innerHTML = ''; details.textContent = ''; progress.textContent = ''; }
+  function reset() { ++state.request; stop(); state.goals = []; state.frames = []; state.frameIndex = 0; state.index = 0; rink.innerHTML = ''; details.textContent = ''; progress.textContent = ''; }
   function draw() {
     if (!state.goals.length) { details.textContent = 'No regulation/overtime goals available for this game.'; return; }
     const goal = state.goals[state.index], d = goal.details || {};
@@ -126,11 +126,23 @@
       const todayGames = score.games || [];
       const teams = new Set(todayGames.flatMap(gameTeams).filter(Boolean));
       if (!teams.size) { status.textContent = 'No NHL games scheduled for this date.'; return; }
-      // Five weekly windows provide up to 35 days of history, without fetching every day.
-      const windows = await Promise.all([ -35, -28, -21, -14, -7 ].map(n => json('/schedule/' + offsetDay(date, n))));
+      // Historical NHL /schedule/{date} is not a dependable archive.
+      // Query the authoritative date-specific score endpoint for each day.
+      // Limit concurrency to avoid overwhelming the upstream API.
       const unique = new Map();
-      for (const window of windows) for (const week of (window.gameWeek || [])) for (const g of (week.games || [])) {
-        if (g.gameDate < date && finished(g) && gameTeams(g).some(t => teams.has(t))) unique.set(g.id, g);
+      let failures = 0;
+      const days = Array.from({ length: 35 }, (_, i) => offsetDay(date, -i - 1));
+      for (let start = 0; start < days.length; start += 5) {
+        const batch = await Promise.allSettled(days.slice(start, start + 5).map(d => json('/score/' + d)));
+        for (const result of batch) {
+          if (result.status !== 'fulfilled') { failures++; continue; }
+          for (const g of (result.value.games || [])) {
+            if (g.gameDate < date && finished(g) && gameTeams(g).some(t => teams.has(t)))
+              unique.set(g.id, g);
+          }
+        }
+        // Stop early once each scheduled team has three completed games.
+        if ([...teams].every(team => [...unique.values()].filter(g => gameTeams(g).includes(team)).length >= 3)) break;
       }
       const history = [...unique.values()].sort((a,b) => b.gameDate.localeCompare(a.gameDate));
       const chosen = new Map();
@@ -142,7 +154,7 @@
         opt.textContent = g.gameDate + ' · ' + gameTeams(g).join(' @ ');
         gameSelect.appendChild(opt);
       }
-      status.textContent = state.games.length ? state.games.length + ' unique historical games for ' + teams.size + ' teams (up to 3 per team)' : 'No completed games found in the previous 35 days.';
+      status.textContent = state.games.length ? state.games.length + ' unique historical games for ' + teams.size + ' teams (up to 3 per team)' : 'No completed games found in the previous 35 days.' + (failures ? ' (' + failures + ' daily requests failed)' : '');
       if (state.games.length) await selectGame();
     } catch (err) { status.textContent = 'Could not load replay: ' + err.message; }
   }
