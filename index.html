@@ -32,6 +32,29 @@
       <button class="tab-btn px-4 py-2 text-sm font-medium rounded-t-lg whitespace-nowrap" data-tab="standings">Standings</button>
       <button class="tab-btn px-4 py-2 text-sm font-medium rounded-t-lg whitespace-nowrap" data-tab="scores">Today's Scores</button>
       <button class="tab-btn px-4 py-2 text-sm font-medium rounded-t-lg whitespace-nowrap" data-tab="top-scorers">&#x1F3C6; Top Scorers</button>
+      <button class="tab-btn px-4 py-2 text-sm font-medium rounded-t-lg whitespace-nowrap" data-tab="goal-replay">Goal Replay</button>
+    </div>
+
+    <!-- Goal replay: three previous completed games for each team on the selected slate -->
+    <div id="tab-goal-replay" class="tab-content hidden">
+      <div id="goal-replay-root" class="bg-nhl-card rounded-lg p-4 space-y-4">
+        <h2 class="text-xl font-semibold">Last 3 Games · Goal Replay</h2>
+        <p class="text-sm text-gray-400">Choose a game day to see goals from each scheduled team's last three completed games. Recorded NHL EDGE puck paths are shown when tracking frames are available; otherwise goal-event locations are shown.</p>
+        <div class="flex flex-wrap gap-2 items-center">
+          <input id="goal-replay-date" type="date" class="bg-gray-900 border border-gray-600 rounded px-3 py-2">
+          <button id="goal-replay-load" class="bg-blue-600 text-white rounded px-4 py-2">Load games</button>
+          <select id="goal-replay-game" aria-label="Historical game" class="bg-gray-900 border border-gray-600 rounded px-3 py-2 max-w-full"></select>
+        </div>
+        <p id="goal-replay-status" role="status" class="text-sm text-gray-400"></p>
+        <svg id="goal-replay-rink" viewBox="0 0 600 300" role="img" aria-label="Hockey rink with goal position" class="w-full rounded bg-white"></svg>
+        <div id="goal-replay-details" class="space-y-1"></div>
+        <div class="flex items-center gap-3">
+          <button id="goal-replay-prev" class="bg-gray-700 rounded px-3 py-2">Previous</button>
+          <button id="goal-replay-play" class="bg-blue-600 rounded px-3 py-2">Play</button>
+          <button id="goal-replay-next" class="bg-gray-700 rounded px-3 py-2">Next</button>
+          <span id="goal-replay-progress" class="text-sm text-gray-400"></span>
+        </div>
+      </div>
     </div>
 
     <!-- Team Stats Tab -->
@@ -95,5 +118,6 @@
   <script src="prediction-model.js"></script>
   <script src="player-data.js"></script>
   <script src="main.js"></script>
+  <script src="goal-replay.js?v=ddb920cd-2"></script>
 </body>
 </html>
